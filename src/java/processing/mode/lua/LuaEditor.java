@@ -72,7 +72,8 @@ public class LuaEditor extends Editor {
 
     /** Makes sure the document now in the text area has a Lua token marker. */
     private void attachTokenMarker() {
-        if (!(getTextArea().getDocument() instanceof SyntaxDocument doc)) return;
+        SyntaxDocument doc = getTextArea().getDocument();
+        if (doc == null) return;
         if (markers.containsKey(doc)) return;
 
         TsLuaTokenMarker marker = new TsLuaTokenMarker();
@@ -104,7 +105,8 @@ public class LuaEditor extends Editor {
         if (markers.size() <= sketch.getCodeCount()) return;
         Set<SyntaxDocument> open = Collections.newSetFromMap(new IdentityHashMap<>());
         for (SketchCode c : sketch.getCode()) {
-            if (c.getDocument() instanceof SyntaxDocument d) open.add(d);
+            Object d = c.getDocument();
+            if (d instanceof SyntaxDocument) open.add((SyntaxDocument) d);
         }
         markers.entrySet().removeIf(e -> {
             if (open.contains(e.getKey())) return false;
@@ -130,7 +132,8 @@ public class LuaEditor extends Editor {
     private boolean runErrorShowing;
 
     void invalidateHighlights() {
-        if (getTextArea().getDocument() instanceof SyntaxDocument doc) {
+        SyntaxDocument doc = getTextArea().getDocument();
+        if (doc != null) {
             TsLuaTokenMarker m = markers.get(doc);
             if (m != null) m.invalidate(doc);
         }
