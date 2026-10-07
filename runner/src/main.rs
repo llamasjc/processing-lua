@@ -838,6 +838,46 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         Ok(())
     })?)?;
 
+    // createGraphics: the Lua side (prelude.lua) wraps these into an object
+    // with beginDraw / endDraw and hands image() the right one.
+    g.set("__createGraphics", lua.create_function(|_, (w, h): (LuaValue, LuaValue)| {
+        let dim = |v: &LuaValue| -> LuaResult<u32> {
+            let n = num(v, "createGraphics()")?;
+            if !n.is_finite() || n < 1.0 {
+                return Err(LuaError::RuntimeError("createGraphics() needs a width and height of at least 1".into()));
+            }
+            Ok((n.round() as u32).min(8192))
+        };
+        let (w, h) = (dim(&w)?, dim(&h)?);
+        Ok((processing::create_graphics(w, h) as i64, w as i64, h as i64))
+    })?)?;
+    g.set("__beginGraphics", lua.create_function(|lua, id: i64| {
+        if processing::begin_graphics(id as u64) {
+            // width and height describe what is being drawn on
+            let (w, h) = processing::target_size();
+            let g = lua.globals();
+            g.raw_set("width",  w as i64)?;
+            g.raw_set("height", h as i64)?;
+            Ok(true)
+        } else { Ok(false) }
+    })?)?;
+    g.set("__endGraphics", lua.create_function(|lua, ()| {
+        processing::end_graphics();
+        let (w, h) = processing::target_size();
+        let g = lua.globals();
+        g.raw_set("width",  w as i64)?;
+        g.raw_set("height", h as i64)?;
+        Ok(())
+    })?)?;
+    g.set("__imageGraphics", lua.create_function(|_, (id, x, y, w, h): (i64, f32, f32, Option<f32>, Option<f32>)| {
+        match (w, h) {
+            (Some(w), Some(h)) => processing::graphics_image_sized(id as u64, x, y, w, h),
+            _                  => processing::graphics_image(id as u64, x, y),
+        }
+        Ok(())
+    })?)?;
+    g.set("clear", lua.create_function(|_, ()| { processing::clear(); Ok(()) })?)?;
+
     g.set("imageMode", lua.create_function(|_, m: i32| { processing::image_mode(m); Ok(()) })?)?;
     g.set("imageWidth", lua.create_function(|_, id: i64| Ok(processing::image_size(id as u64).0 as i64))?)?;
     g.set("imageHeight", lua.create_function(|_, id: i64| Ok(processing::image_size(id as u64).1 as i64))?)?;

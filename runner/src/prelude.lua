@@ -221,3 +221,46 @@ PVector.__div = function(a, n) return vec(a.x / n, a.y / n, a.z / n) end
 PVector.__unm = function(a) return vec(-a.x, -a.y, -a.z) end
 PVector.__eq  = function(a, b) return a.x == b.x and a.y == b.y and a.z == b.z end
 PVector.__tostring = function(a) return "[ " .. a.x .. ", " .. a.y .. ", " .. a.z .. " ]" end
+
+-- ── createGraphics ────────────────────────────────────────────────────────
+-- local pg = createGraphics(200, 100)
+-- pg:beginDraw()  pg:background(0)  pg:ellipse(50, 50, 40, 40)  pg:endDraw()
+-- image(pg, 10, 10)
+-- Between beginDraw and endDraw every drawing function draws on the layer,
+-- so pg:ellipse(...) and plain ellipse(...) do the same thing there. A layer
+-- starts out transparent. Make layers once, in setup().
+do
+  local create, begin, finish, show = __createGraphics, __beginGraphics, __endGraphics, __imageGraphics
+  __createGraphics, __beginGraphics, __endGraphics, __imageGraphics = nil, nil, nil, nil
+  local Layer = {}
+  local forwards = {}   -- pg:name(...) -> name(...), made once per name
+  Layer.__index = function(_, name)
+    local own = rawget(Layer, name)
+    if own then return own end
+    local f = forwards[name]
+    if not f then
+      local target = _G[name]
+      if type(target) ~= "function" then return nil end
+      f = function(_, ...) return _G[name](...) end
+      forwards[name] = f
+    end
+    return f
+  end
+  function Layer:beginDraw()
+    if not begin(self.id) then error("beginDraw(): this layer is already being drawn to", 2) end
+  end
+  function Layer:endDraw() finish() end
+  Layer.__tostring = function(l) return "layer " .. l.width .. "x" .. l.height end
+
+  function createGraphics(w, h)
+    local id, rw, rh = create(w, h)
+    if id == 0 then error("createGraphics(): could not make the layer (too many, or too big)", 2) end
+    return setmetatable({ id = id, width = rw, height = rh }, Layer)
+  end
+
+  local drawImage = image
+  function image(img, ...)
+    if getmetatable(img) == Layer then return show(img.id, ...) end
+    return drawImage(img, ...)
+  end
+end
