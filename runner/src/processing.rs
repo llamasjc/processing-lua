@@ -140,6 +140,21 @@ pub fn resolve_color(v: &[f32]) -> [f32; 4] {
     [rgb.0 * 255.0, rgb.1 * 255.0, rgb.2 * 255.0, alpha * 255.0]
 }
 
+/// (hue, saturation, brightness), each 0..1, of an r, g, b in 0..1.
+pub fn rgb_to_hsb(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    let d = max - min;
+    let s = if max > 0.0 { d / max } else { 0.0 };
+    let h = if d <= 0.0 { 0.0 }
+        else if max == r { ((g - b) / d).rem_euclid(6.0) }
+        else if max == g { (b - r) / d + 2.0 }
+        else { (r - g) / d + 4.0 };
+    (h / 6.0, s, max)
+}
+/// Channel maximum set by colorMode(): 0, 1, 2 for the three channels, 3 for alpha.
+pub fn color_max(i: usize) -> f32 { f32::from_bits(COLOR_MAX[i.min(3)].load(Ordering::Relaxed)) }
+pub fn is_hsb() -> bool { COLOR_MODE.load(Ordering::Relaxed) == HSB }
+
 fn hsb_to_rgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
     let h = (h.fract() + 1.0).fract() * 6.0;
     let i = h.floor();
@@ -161,6 +176,13 @@ pub fn no_tint()   { engine::no_tint() }
 pub fn stroke_weight(w: f32) { engine::stroke_weight(w) }
 pub fn stroke_cap(cap: i32)   { engine::stroke_cap(cap.max(0) as u32) }
 pub fn stroke_join(join: i32) { engine::stroke_join(join.max(0) as u32) }
+pub fn blend_mode(mode: i32)  { engine::blend_mode(mode.max(0) as u32) }
+pub fn image_mode(mode: i32)  { engine::image_mode(mode.max(0) as u32) }
+pub fn image_size(id: u64) -> (f32, f32) { (engine::image_width(id), engine::image_height(id)) }
+pub fn set_pixel(x: i32, y: i32, r: f32, g: f32, b: f32) { engine::set_pixel(x, y, r, g, b) }
+pub fn shear_x(a: f32) { engine::shear_x(a) }
+pub fn shear_y(a: f32) { engine::shear_y(a) }
+pub fn apply_matrix(a: f32, b: f32, c: f32, d: f32, e: f32, f: f32) { engine::apply_matrix(a, b, c, d, e, f) }
 
 pub fn lerp_color(r1: f32, g1: f32, b1: f32, r2: f32, g2: f32, b2: f32, t: f32) -> (f32, f32, f32) {
     let t = t.clamp(0.0, 1.0);
@@ -207,9 +229,10 @@ pub fn triangle(x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) {
 pub fn quad(x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32, x4: f32, y4: f32) {
     engine::quad(x1, y1, x2, y2, x3, y3, x4, y4)
 }
-/// The engine draws pie-style arcs; the mode argument is accepted and ignored.
-pub fn arc(x: f32, y: f32, w: f32, h: f32, start: f32, stop: f32, _mode: i32) {
-    engine::arc(x, y, w, h, start, stop)
+/// mode: 0 for none given, else OPEN (1), CHORD (2) or PIE (3). Follows ellipseMode().
+pub fn arc(a: f32, b: f32, c: f32, d: f32, start: f32, stop: f32, mode: i32) {
+    let (x, y, w, h) = to_corner(ELLIPSE_MODE.load(Ordering::Relaxed), a, b, c, d);
+    engine::arc_mode(x + w / 2.0, y + h / 2.0, w, h, start, stop, mode.clamp(0, 3) as u32)
 }
 pub fn bezier(x1: f32, y1: f32, cx1: f32, cy1: f32, cx2: f32, cy2: f32, x2: f32, y2: f32) {
     engine::bezier(x1, y1, cx1, cy1, cx2, cy2, x2, y2)
@@ -230,8 +253,8 @@ pub fn begin_shape(kind: i32) {
     };
     engine::begin_shape_kind(k)
 }
-/// Lua CLOSE is 1.
-pub fn end_shape(mode: i32) { engine::end_shape_mode(if mode == 1 { engine::CLOSE } else { 0 }) }
+/// CLOSE is 2, as in Processing.
+pub fn end_shape(mode: i32) { engine::end_shape_mode(if mode == 2 { engine::CLOSE } else { 0 }) }
 pub fn vertex(x: f32, y: f32) { engine::vertex(x, y) }
 pub fn bezier_vertex(cx1: f32, cy1: f32, cx2: f32, cy2: f32, x: f32, y: f32) {
     engine::bezier_vertex(cx1, cy1, cx2, cy2, x, y)

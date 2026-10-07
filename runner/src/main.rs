@@ -422,10 +422,22 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     g.set("CORNER",   processing::CORNER)?;
     g.set("CORNERS",  processing::CORNERS)?;
     g.set("RADIUS",   processing::RADIUS)?;
-    g.set("OPEN",    0_i32)?;
-    g.set("CLOSE",   1_i32)?;
-    g.set("PIE",     0_i32)?;
-    g.set("CHORD",   0_i32)?;
+    // Processing's own numbers
+    g.set("OPEN",    1_i32)?;
+    g.set("CLOSE",   2_i32)?;
+    g.set("CHORD",   2_i32)?;
+    g.set("PIE",     3_i32)?;
+    // Blend modes
+    g.set("REPLACE",    0_i32)?;
+    g.set("BLEND",      1_i32)?;
+    g.set("ADD",        2_i32)?;
+    g.set("SUBTRACT",   4_i32)?;
+    g.set("LIGHTEST",   8_i32)?;
+    g.set("DARKEST",    16_i32)?;
+    g.set("DIFFERENCE", 32_i32)?;
+    g.set("EXCLUSION",  64_i32)?;
+    g.set("MULTIPLY",   128_i32)?;
+    g.set("SCREEN",     256_i32)?;
     // Color modes
     g.set("RGB",     1_i32)?;
     g.set("HSB",     3_i32)?;
@@ -439,11 +451,11 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     g.set("QUAD_STRIP",   8_i32)?;
     g.set("POLYGON",      9_i32)?;
     // Stroke caps / joins
-    g.set("ROUND",   0_i32)?;
     g.set("SQUARE",  1_i32)?;
-    g.set("PROJECT", 2_i32)?;
-    g.set("MITER",   3_i32)?;
-    g.set("BEVEL",   4_i32)?;
+    g.set("ROUND",   2_i32)?;
+    g.set("PROJECT", 4_i32)?;
+    g.set("MITER",   8_i32)?;
+    g.set("BEVEL",   32_i32)?;
     // Key codes
     g.set("BACKSPACE", 8_i32)?;
     g.set("TAB",       9_i32)?;
@@ -511,15 +523,47 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         Ok(())
     })?)?;
 
-    g.set("lerpColor", lua.create_function(|_, (r1,g1,b1, r2,g2,b2, t): (f32,f32,f32,f32,f32,f32,f32)| {
-        let (r,g,b) = processing::lerp_color(r1,g1,b1, r2,g2,b2, t);
-        // Return as table {r,g,b}
+    // lerpColor(c1, c2, t) with colors from color(), or
+    // lerpColor(r1, g1, b1, r2, g2, b2, t) which returns r, g, b
+    g.set("lerpColor", lua.create_function(|_, args: LuaMultiValue| {
+        let v: Vec<LuaValue> = args.into_iter().collect();
+        if v.len() == 3 {
+            let (a, b) = (color_arg(&v[0]), color_arg(&v[1]));
+            let t = (num(&v[2], "lerpColor()")? as f32).clamp(0.0, 1.0);
+            let mix = [0, 1, 2, 3].map(|i| a[i] + (b[i] - a[i]) * t);
+            return Ok(LuaMultiValue::from_vec(vec![LuaValue::Integer(pack_color(mix))]));
+        }
+        if v.len() < 7 {
+            return Err(LuaError::RuntimeError(
+                "lerpColor() expects (color, color, amount) or (r1, g1, b1, r2, g2, b2, amount)".into()));
+        }
+        let n: Vec<f32> = v.iter().map(|x| x.to_num().unwrap_or(0.0)).collect();
+        let (r, g, b) = processing::lerp_color(n[0], n[1], n[2], n[3], n[4], n[5], n[6]);
         Ok(LuaMultiValue::from_vec(vec![
-            LuaValue::Number(r as f64),
-            LuaValue::Number(g as f64),
-            LuaValue::Number(b as f64),
+            LuaValue::Number(r as f64), LuaValue::Number(g as f64), LuaValue::Number(b as f64),
         ]))
     })?)?;
+
+    // color(...) packs a color into one value that fill(), stroke(),
+    // background(), tint(), set() and lerpColor() all accept.
+    g.set("color", lua.create_function(|_, args: LuaMultiValue| {
+        Ok(pack_color(unpack_color(args)))
+    })?)?;
+    // red(c), green(c), blue(c), alpha(c): 0..255
+    for (name, i) in [("red", 0usize), ("green", 1), ("blue", 2), ("alpha", 3)] {
+        g.set(name, lua.create_function(move |_, c: LuaValue| Ok(color_arg(&c)[i] as f64))?)?;
+    }
+    // hue(c), saturation(c), brightness(c): in the range colorMode() set
+    for (name, i) in [("hue", 0usize), ("saturation", 1), ("brightness", 2)] {
+        g.set(name, lua.create_function(move |_, c: LuaValue| {
+            let c = color_arg(&c);
+            let hsb = processing::rgb_to_hsb(c[0] / 255.0, c[1] / 255.0, c[2] / 255.0);
+            let max = if processing::is_hsb() { processing::color_max(i) } else { 255.0 };
+            Ok(([hsb.0, hsb.1, hsb.2][i] * max) as f64)
+        })?)?;
+    }
+
+    g.set("blendMode", lua.create_function(|_, mode: i32| { processing::blend_mode(mode); Ok(()) })?)?;
 
     // ── Shapes ────────────────────────────────────────────────────────────
     g.set("rect", lua.create_function(|_, (x,y,w,h,r): (f32,f32,f32,f32,Option<f32>)| {
@@ -625,6 +669,12 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
             _ => processing::scale(vals[0], vals[1]),
         }
         Ok(())
+    })?)?;
+
+    g.set("shearX", lua.create_function(|_, a: f32| { processing::shear_x(a); Ok(()) })?)?;
+    g.set("shearY", lua.create_function(|_, a: f32| { processing::shear_y(a); Ok(()) })?)?;
+    g.set("applyMatrix", lua.create_function(|_, (a, b, c, d, e, f): (f32, f32, f32, f32, f32, f32)| {
+        processing::apply_matrix(a, b, c, d, e, f); Ok(())
     })?)?;
 
     g.set("resetMatrix", lua.create_function(|_, ()| {
@@ -788,6 +838,10 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         Ok(())
     })?)?;
 
+    g.set("imageMode", lua.create_function(|_, m: i32| { processing::image_mode(m); Ok(()) })?)?;
+    g.set("imageWidth", lua.create_function(|_, id: i64| Ok(processing::image_size(id as u64).0 as i64))?)?;
+    g.set("imageHeight", lua.create_function(|_, id: i64| Ok(processing::image_size(id as u64).1 as i64))?)?;
+
     g.set("tint", lua.create_function(|_, args: LuaMultiValue| {
         let c = unpack_color(args);
         processing::tint(c[0], c[1], c[2], c[3]); Ok(())
@@ -799,6 +853,21 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     g.set("get", lua.create_function(|_, (x, y): (f64, f64)| {
         let (r, g, b) = processing::get_pixel(x.floor() as i32, y.floor() as i32);
         Ok((r as i64, g as i64, b as i64))
+    })?)?;
+
+    // set(x, y, color) or set(x, y, r, g, b): one pixel, ignores transforms
+    g.set("set", lua.create_function(|_, args: LuaMultiValue| {
+        let mut it = args.into_iter();
+        let (x, y) = (it.next(), it.next());
+        let (Some(x), Some(y)) = (x, y) else {
+            return Err(LuaError::RuntimeError("set() expects x, y and a color".into()));
+        };
+        let (x, y) = (num(&x, "set()")?, num(&y, "set()")?);
+        let c = unpack_color(it.collect());
+        if x.is_finite() && y.is_finite() {
+            processing::set_pixel(x.floor() as i32, y.floor() as i32, c[0], c[1], c[2]);
+        }
+        Ok(())
     })?)?;
 
     g.set("saveFrame", lua.create_function(|_, name: Option<String>| {
@@ -820,8 +889,40 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
 // per-channel ranges) and come back as RGBA in 0..255.
 
 fn unpack_color(args: LuaMultiValue) -> [f32; 4] {
+    // fill(c) and fill(c, alpha) with c made by color()
+    if args.len() == 1 || args.len() == 2 {
+        if let Some(LuaValue::Integer(n)) = args.iter().next() {
+            if is_packed(*n) {
+                let mut c = unpack_packed(*n);
+                if let Some(a) = args.iter().nth(1).and_then(|v| v.to_num()) {
+                    c[3] = (a / processing::color_max(3)).clamp(0.0, 1.0) * 255.0;
+                }
+                return c;
+            }
+        }
+    }
     let vals: Vec<f32> = args.iter().filter_map(|v| v.to_num()).collect();
     processing::resolve_color(&vals)
+}
+
+// A color from color() is one integer, 0xAARRGGBB, like Processing's. Small
+// integers stay what they always were: fill(255) is white, not blue. (Same
+// rule as Processing: a color with alpha 0 can't be told from a gray.)
+fn is_packed(n: i64) -> bool { n > 0x00FF_FFFF || n < 0 }
+fn unpack_packed(n: i64) -> [f32; 4] {
+    let n = n as u32;
+    [((n >> 16) & 0xFF) as f32, ((n >> 8) & 0xFF) as f32, (n & 0xFF) as f32, ((n >> 24) & 0xFF) as f32]
+}
+fn pack_color(c: [f32; 4]) -> i64 {
+    let ch = |v: f32| (v.round().clamp(0.0, 255.0)) as i64;
+    (ch(c[3]) << 24) | (ch(c[0]) << 16) | (ch(c[1]) << 8) | ch(c[2])
+}
+/// One value as a color: a packed color, or a gray in the current colorMode.
+fn color_arg(v: &LuaValue) -> [f32; 4] {
+    match v {
+        LuaValue::Integer(n) if is_packed(*n) => unpack_packed(*n),
+        other => processing::resolve_color(&[other.to_num().unwrap_or(0.0)]),
+    }
 }
 
 // ── LuaValue helper ───────────────────────────────────────────────────────

@@ -71,3 +71,153 @@ do
     end,
   })
 end
+
+-- ── More math ─────────────────────────────────────────────────────────────
+function bezierPoint(a, b, c, d, t)
+  local u = 1 - t
+  return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d
+end
+function bezierTangent(a, b, c, d, t)
+  local u = 1 - t
+  return 3 * u * u * (b - a) + 6 * u * t * (c - b) + 3 * t * t * (d - c)
+end
+function curvePoint(a, b, c, d, t)
+  local t2, t3 = t * t, t * t * t
+  return 0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3)
+end
+function curveTangent(a, b, c, d, t)
+  local t2 = t * t
+  return 0.5 * ((-a + c) + 2 * (2 * a - 5 * b + 4 * c - d) * t + 3 * (-a + 3 * b - 3 * c + d) * t2)
+end
+
+-- ── Date and time (local) ─────────────────────────────────────────────────
+function year()   return os.date("*t").year  end
+function month()  return os.date("*t").month end
+function day()    return os.date("*t").day   end
+function hour()   return os.date("*t").hour  end
+function minute() return os.date("*t").min   end
+function second() return os.date("*t").sec   end
+
+-- ── Strings and files ─────────────────────────────────────────────────────
+function trim(s) return (tostring(s):gsub("^%s+", ""):gsub("%s+$", "")) end
+function join(list, sep) return table.concat(list, sep or "") end
+-- split("a,b,c", ",") -> {"a", "b", "c"}; the separator is plain text
+function split(s, sep)
+  local out, from = {}, 1
+  s, sep = tostring(s), tostring(sep or " ")
+  if sep == "" then
+    for i = 1, #s do out[i] = s:sub(i, i) end
+    return out
+  end
+  while true do
+    local a, b = s:find(sep, from, true)
+    if not a then out[#out + 1] = s:sub(from) break end
+    out[#out + 1] = s:sub(from, a - 1)
+    from = b + 1
+  end
+  return out
+end
+-- nf(7, 3) -> "007"; nf(3.14159, 1, 2) -> "3.14"
+function nf(n, left, right)
+  if type(n) ~= "number" then error("nf() expects a number", 2) end
+  local neg = n < 0
+  local s
+  if right then s = string.format("%." .. right .. "f", math.abs(n))
+  else s = tostring(math.floor(math.abs(n) + 0.5)) end
+  local whole = s:match("^%d+")
+  if left and #whole < left then s = string.rep("0", left - #whole) .. s end
+  return (neg and "-" or "") .. s
+end
+-- loadStrings("notes.txt") -> a list of lines, or nil if the file can't be read
+function loadStrings(path)
+  local f = io.open(path, "r")
+  if not f then
+    io.stderr:write("loadStrings: could not open " .. tostring(path) .. "\n")
+    return nil
+  end
+  local lines = {}
+  for line in f:lines() do lines[#lines + 1] = (line:gsub("\r$", "")) end
+  f:close()
+  return lines
+end
+function saveStrings(path, lines)
+  local f, why = io.open(path, "w")
+  if not f then
+    io.stderr:write("saveStrings: could not write " .. tostring(path) .. " (" .. tostring(why) .. ")\n")
+    return false
+  end
+  for _, line in ipairs(lines) do f:write(tostring(line), "\n") end
+  f:close()
+  return true
+end
+function save(name) saveFrame(name or "screen.png") end
+
+-- ── PVector ───────────────────────────────────────────────────────────────
+-- v = createVector(3, 4)   v:add(w)   v:mag()   local sum = a + b
+-- Methods change the vector and return it, so they chain. The operators
+-- (+ - * / and unary -) make a new vector.
+PVector = {}
+PVector.__index = PVector
+local function vec(x, y, z) return setmetatable({ x = x or 0, y = y or 0, z = z or 0 }, PVector) end
+local function isvec(v) return getmetatable(v) == PVector end
+local function parts(a, b, c)
+  if isvec(a) then return a.x, a.y, a.z end
+  return a or 0, b or 0, c or 0
+end
+function createVector(x, y, z) return vec(x, y, z) end
+PVector.new = vec
+function PVector.fromAngle(a) return vec(math.cos(a), math.sin(a), 0) end
+function PVector.random2D() return PVector.fromAngle(random(TWO_PI)) end
+function PVector:copy() return vec(self.x, self.y, self.z) end
+function PVector:set(a, b, c) self.x, self.y, self.z = parts(a, b, c) return self end
+function PVector:mag() return math.sqrt(self.x * self.x + self.y * self.y + self.z * self.z) end
+function PVector:magSq() return self.x * self.x + self.y * self.y + self.z * self.z end
+-- pos:add(vel) changes pos, as in Processing. For a new vector use the
+-- operators: local sum = a + b
+function PVector:add(a, b, c) local x, y, z = parts(a, b, c) self.x, self.y, self.z = self.x + x, self.y + y, self.z + z return self end
+function PVector:sub(a, b, c) local x, y, z = parts(a, b, c) self.x, self.y, self.z = self.x - x, self.y - y, self.z - z return self end
+function PVector:mult(n) self.x, self.y, self.z = self.x * n, self.y * n, self.z * n return self end
+function PVector:div(n)  self.x, self.y, self.z = self.x / n, self.y / n, self.z / n return self end
+function PVector:dot(v)  return self.x * v.x + self.y * v.y + self.z * v.z end
+function PVector:cross(v)
+  return vec(self.y * v.z - self.z * v.y, self.z * v.x - self.x * v.z, self.x * v.y - self.y * v.x)
+end
+function PVector:dist(v)
+  local dx, dy, dz = self.x - v.x, self.y - v.y, self.z - v.z
+  return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+function PVector:normalize()
+  local m = self:mag()
+  if m > 0 then self:div(m) end
+  return self
+end
+function PVector:setMag(n) return self:normalize():mult(n) end
+function PVector:limit(n)
+  if self:magSq() > n * n then self:setMag(n) end
+  return self
+end
+function PVector:heading() return math.atan(self.y, self.x) end
+function PVector:rotate(a)
+  local c, s = math.cos(a), math.sin(a)
+  self.x, self.y = self.x * c - self.y * s, self.x * s + self.y * c
+  return self
+end
+function PVector:lerp(v, t)
+  self.x, self.y, self.z = self.x + (v.x - self.x) * t, self.y + (v.y - self.y) * t, self.z + (v.z - self.z) * t
+  return self
+end
+function PVector.angleBetween(a, b)
+  local m = a:mag() * b:mag()
+  if m == 0 then return 0 end
+  return math.acos(math.max(-1, math.min(1, a:dot(b) / m)))
+end
+PVector.__add = function(a, b) return vec(a.x + b.x, a.y + b.y, a.z + b.z) end
+PVector.__sub = function(a, b) return vec(a.x - b.x, a.y - b.y, a.z - b.z) end
+PVector.__mul = function(a, b)
+  if type(a) == "number" then return vec(b.x * a, b.y * a, b.z * a) end
+  return vec(a.x * b, a.y * b, a.z * b)
+end
+PVector.__div = function(a, n) return vec(a.x / n, a.y / n, a.z / n) end
+PVector.__unm = function(a) return vec(-a.x, -a.y, -a.z) end
+PVector.__eq  = function(a, b) return a.x == b.x and a.y == b.y and a.z == b.z end
+PVector.__tostring = function(a) return "[ " .. a.x .. ", " .. a.y .. ", " .. a.z .. " ]" end
