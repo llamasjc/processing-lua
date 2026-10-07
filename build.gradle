@@ -45,6 +45,8 @@ dependencies {
 
 test {
     useJUnitPlatform()
+    // the jar packs queries/ at its root; tests find /queries/highlights.scm the same way
+    classpath += files(projectDir)
 
     // The parser tests need lib/<platform>/<native lib> (built by
     // native/build.sh). They are skipped when it isn't there, unless
