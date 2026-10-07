@@ -46,7 +46,8 @@ dependencies {
 test {
     useJUnitPlatform()
     // the jar packs queries/ at its root; tests find /queries/highlights.scm the same way
-    classpath += files(projectDir)
+    dependsOn 'testQueries'
+    classpath += files(layout.buildDirectory.dir('test-res'))
 
     // The parser tests need lib/<platform>/<native lib> (built by
     // native/build.sh). They are skipped when it isn't there, unless
@@ -226,4 +227,11 @@ def detectRunnerPlatform() {
     if (os.contains('mac'))  return "macos-${a}"
     if (os.contains('win'))  return "windows-${a}"
     return "linux-${a}"
+}
+
+// queries/ is packed at the root of the jar. Tests get their own copy on the
+// classpath (a folder under build/, so it never overlaps another task's output).
+tasks.register('testQueries', Copy) {
+    from 'queries'
+    into layout.buildDirectory.dir('test-res/queries')
 }
