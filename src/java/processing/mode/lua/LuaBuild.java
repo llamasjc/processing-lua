@@ -49,6 +49,12 @@ public final class LuaBuild {
 
     private volatile Process proc;
 
+    // Present mode: the screen to cover, or null for a normal window.
+    private volatile java.awt.Rectangle presentOn;
+
+    /** Run the sketch in present mode on this screen (null: a normal window). */
+    public void setPresent(java.awt.Rectangle screen) { presentOn = screen; }
+
     // ── Construction ──────────────────────────────────────────────────────
 
     public LuaBuild(Sketch sketch, File modeFolder) {
@@ -126,6 +132,13 @@ public final class LuaBuild {
         // kill -9), the pipe closes and the sketch window closes with it
         // instead of staying behind as an orphan.
         pb.environment().put("LUAMODE_WATCH_STDIN", "1");
+        java.awt.Rectangle scr = presentOn;
+        if (scr != null && scr.width > 0 && scr.height > 0) {
+            pb.environment().put("LUAMODE_PRESENT",
+                scr.width + "," + scr.height + "," + scr.x + "," + scr.y);
+        } else {
+            pb.environment().remove("LUAMODE_PRESENT");
+        }
 
         RunLog.log("build: starting " + runner + " in " + pb.directory());
         Process p = pb.start();

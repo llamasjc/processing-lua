@@ -180,15 +180,22 @@ public class LuaEditor extends Editor {
         run.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_R,
             java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         run.addActionListener(e -> getToolbar().handleRun(0));
+        // fills the screen this window is on, sketch in the middle; Esc closes it
+        JMenuItem present = new JMenuItem("Present");
+        present.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_R,
+            java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()
+            | java.awt.event.InputEvent.SHIFT_DOWN_MASK));
+        present.addActionListener(e -> getToolbar().handleRun(1));
         JMenuItem stop = new JMenuItem("Stop");
         stop.addActionListener(e -> handleStop());
         try {
             // sets Editor's private sketchMenu field, which windowActivated needs
-            return buildSketchMenu(new JMenuItem[] { run, stop });
+            return buildSketchMenu(new JMenuItem[] { run, present, stop });
         } catch (Throwable t) {
             System.err.println("[LuaMode] Sketch menu fallback: " + t);
             JMenu sketchMenu = new JMenu("Sketch");
             sketchMenu.add(run);
+            sketchMenu.add(present);
             sketchMenu.add(stop);
             return sketchMenu;
         }
@@ -227,6 +234,7 @@ public class LuaEditor extends Editor {
                 problems -> SwingUtilities.invokeLater(() -> showRunProblems(problems)),
                 () -> onRunnerFinished(ref[0]));
             ref[0] = thisRunner;
+            if (present) thisRunner.setPresent(screenBounds());
             runner  = thisRunner;
             try { getToolbar().activateRun(); } catch (Throwable ignored) {}
             thisRunner.launch();
@@ -236,6 +244,20 @@ public class LuaEditor extends Editor {
             runner = null;
             deactivateRun();
             statusError("Could not start the sketch: " + t);
+        }
+    }
+
+    /** The screen this editor window is on (present mode covers that one). */
+    private java.awt.Rectangle screenBounds() {
+        try {
+            java.awt.GraphicsConfiguration gc = getGraphicsConfiguration();
+            if (gc != null) return gc.getBounds();
+        } catch (Throwable ignored) {}
+        try {
+            java.awt.Dimension d = java.awt.Toolkit.getDefaultToolkit().getScreenSize();
+            return new java.awt.Rectangle(0, 0, d.width, d.height);
+        } catch (Throwable t) {
+            return null;   // no screen info: runs in a normal window
         }
     }
 

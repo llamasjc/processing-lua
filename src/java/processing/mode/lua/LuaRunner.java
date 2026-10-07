@@ -28,6 +28,10 @@ public final class LuaRunner {
     private volatile Thread      thread;
     private volatile LuaBuild    build;
     private volatile boolean     halted;
+    private volatile java.awt.Rectangle presentOn;
+
+    /** Present mode on this screen. Call before {@link #launch()}. */
+    public void setPresent(java.awt.Rectangle screen) { presentOn = screen; }
 
     /**
      * @param onProblems called (on the runner thread) with the errors of a run
@@ -70,6 +74,7 @@ public final class LuaRunner {
         RunLog.log("runner thread started");
         try {
             LuaBuild b = new LuaBuild(sketch, modeFolder);
+            b.setPresent(presentOn);
             build = b;
             if (halted) return;
             List<LuaProblem> problems = b.run();

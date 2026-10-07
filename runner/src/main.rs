@@ -83,6 +83,15 @@ fn main() {
         });
     }
 
+    // Present pressed in the IDE: LUAMODE_PRESENT is "width,height,x,y" of the
+    // screen the editor is on.
+    if let Ok(v) = env::var("LUAMODE_PRESENT") {
+        let n: Vec<i64> = v.split(',').filter_map(|p| p.trim().parse().ok()).collect();
+        if n.len() == 4 && n[0] > 0 && n[1] > 0 {
+            processing::present(n[0] as usize, n[1] as usize, n[2] as isize, n[3] as isize);
+        }
+    }
+
     let sketch_path: PathBuf = env::args()
         .nth(1)
         .map(PathBuf::from)
