@@ -720,6 +720,11 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     g.set("windowTitle", lua.create_function(|_, t: LuaString| {
         processing::window_title(&t.to_string_lossy()); Ok(())
     })?)?;
+    // windowResizable(true) in setup() lets the window be resized. The default
+    // is a fixed-size window, which tiling window managers show floating.
+    g.set("windowResizable", lua.create_function(|_, on: Option<bool>| {
+        processing::window_resizable(on.unwrap_or(true)); Ok(())
+    })?)?;
     g.set("smooth",   lua.create_function(|_, ()| { processing::smooth(true);  Ok(()) })?)?;
     g.set("noSmooth", lua.create_function(|_, ()| { processing::smooth(false); Ok(()) })?)?;
 

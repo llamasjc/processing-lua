@@ -84,7 +84,7 @@
 ;; -- Processing time / control - @function.builtin ------------------------
 ((identifier) @function.builtin
   (#match? @function.builtin
-    "^(millis|delay|frameRate|setFrameRate|loop|noLoop|redraw|exit|cursor|noCursor|windowTitle|print|println)$"))
+    "^(millis|delay|frameRate|setFrameRate|loop|noLoop|redraw|exit|cursor|noCursor|windowTitle|windowResizable|print|println)$"))
 
 ;; -- Processing environment globals - @variable.builtin -------------------
 ((identifier) @variable.builtin

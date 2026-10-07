@@ -72,6 +72,7 @@ pub fn key_code() -> u32 {
 
 pub fn size(w: u32, h: u32)  { engine::size(w, h) }
 pub fn window_title(t: &str) { engine::window_title(t) }
+pub fn window_resizable(on: bool) { engine::window_resizable(on) }
 pub fn smooth(on: bool)      { if on { engine::smooth() } else { engine::no_smooth() } }
 pub fn width() -> f32        { engine::width() }
 pub fn height() -> f32       { engine::height() }
