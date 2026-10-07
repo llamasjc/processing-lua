@@ -180,6 +180,8 @@ pub fn blend_mode(mode: i32)  { engine::blend_mode(mode.max(0) as u32) }
 pub fn image_mode(mode: i32)  { engine::image_mode(mode.max(0) as u32) }
 pub fn image_size(id: u64) -> (f32, f32) { (engine::image_width(id), engine::image_height(id)) }
 pub fn set_pixel(x: i32, y: i32, r: f32, g: f32, b: f32) { engine::set_pixel(x, y, r, g, b) }
+pub fn load_pixels() -> Vec<u32> { engine::load_pixels() }
+pub fn update_pixels(px: &[u32]) { engine::update_pixels(px) }
 pub fn shear_x(a: f32) { engine::shear_x(a) }
 pub fn shear_y(a: f32) { engine::shear_y(a) }
 pub fn apply_matrix(a: f32, b: f32, c: f32, d: f32, e: f32, f: f32) { engine::apply_matrix(a, b, c, d, e, f) }

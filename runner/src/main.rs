@@ -855,6 +855,35 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         Ok((r as i64, g as i64, b as i64))
     })?)?;
 
+    // loadPixels() fills the global `pixels` with one color() value per
+    // pixel; the pixel at (x, y) is pixels[y * width + x], counting from 0 as
+    // in Processing. Change entries, then updatePixels() to show them.
+    g.set("loadPixels", lua.create_function(|lua, ()| {
+        let px = processing::load_pixels();
+        let t = match lua.globals().raw_get::<_, LuaValue>("pixels")? {
+            LuaValue::Table(t) if t.raw_len() + 1 == px.len() => t,   // reuse: same size as last time
+            _ => lua.create_table_with_capacity(px.len(), 1)?,
+        };
+        for (i, p) in px.iter().enumerate() { t.raw_set(i as i64, *p as i64)?; }
+        lua.globals().raw_set("pixels", t)
+    })?)?;
+    g.set("updatePixels", lua.create_function(|lua, ()| {
+        let t = match lua.globals().raw_get::<_, LuaValue>("pixels")? {
+            LuaValue::Table(t) => t,
+            _ => return Err(LuaError::RuntimeError("updatePixels() needs loadPixels() first".into())),
+        };
+        let mut px = processing::load_pixels();
+        for (i, p) in px.iter_mut().enumerate() {
+            match t.raw_get::<_, LuaValue>(i as i64)? {
+                LuaValue::Integer(n) => *p = if is_packed(n) { n as u32 } else { gray_pixel(n as f32) },
+                LuaValue::Number(n)  => *p = gray_pixel(n as f32),
+                _ => {}   // nil or anything else: that pixel stays as it is
+            }
+        }
+        processing::update_pixels(&px);
+        Ok(())
+    })?)?;
+
     // set(x, y, color) or set(x, y, r, g, b): one pixel, ignores transforms
     g.set("set", lua.create_function(|_, args: LuaMultiValue| {
         let mut it = args.into_iter();
@@ -908,6 +937,11 @@ fn unpack_color(args: LuaMultiValue) -> [f32; 4] {
 // A color from color() is one integer, 0xAARRGGBB, like Processing's. Small
 // integers stay what they always were: fill(255) is white, not blue. (Same
 // rule as Processing: a color with alpha 0 can't be told from a gray.)
+/// pixels[i] = 128 means gray, as with fill(128).
+fn gray_pixel(v: f32) -> u32 {
+    let c = processing::resolve_color(&[v]);
+    pack_color(c) as u32
+}
 fn is_packed(n: i64) -> bool { n > 0x00FF_FFFF || n < 0 }
 fn unpack_packed(n: i64) -> [f32; 4] {
     let n = n as u32;
