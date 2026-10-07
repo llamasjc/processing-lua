@@ -31,28 +31,108 @@ public class LuaInputHandler extends PdeInputHandler {
 
     @Override
     public boolean handleTyped(KeyEvent e) {
-        if (handleKey(e)) return true;
+        try {
+            if (handleKey(e)) return true;
+        } catch (Throwable t) {
+            // a typing helper must never eat the keystroke or break the editor
+            report(t);
+        }
         return super.handleTyped(e);
     }
 
-    /** Enter after a block opener (then, do, function(...), repeat, else, {) indents one level. */
+    /**
+     * Enter in Lua code:
+     *   after a block opener (then, do, function(...), repeat, else, {) the
+     *   next line is indented one level;
+     *   on a line that closes a block (end, else, elseif, until, }) the line
+     *   itself is first pulled back to where its block started.
+     * Everything else is left to the editor's own Enter handling.
+     */
     @Override
     public boolean handlePressed(KeyEvent e) {
-        if (e.getKeyCode() == KeyEvent.VK_ENTER && e.getModifiersEx() == 0) {
-            JEditTextArea ta = editor.getTextArea();
-            if (ta.getSelectionStart() == ta.getSelectionStop()) {
-                int caret = ta.getCaretPosition();
-                int line  = ta.getCaretLine();
-                String before = ta.getText(ta.getLineStartOffset(line),
-                                           caret - ta.getLineStartOffset(line));
-                if (before != null && opensBlock(before)) {
-                    ta.setSelectedText("\n" + leadingWhitespace(before) + indentUnit());
-                    e.consume();
-                    return true;
-                }
+        try {
+            if (e.getKeyCode() == KeyEvent.VK_ENTER && e.getModifiersEx() == 0 && luaEnter()) {
+                e.consume();
+                return true;
             }
+        } catch (Throwable t) {
+            report(t);
         }
         return super.handlePressed(e);
+    }
+
+    private static boolean reported;
+    private static void report(Throwable t) {
+        if (reported) return;
+        reported = true;
+        System.err.println("[LuaMode] typing helper failed, falling back to plain editing: " + t);
+    }
+
+    /** Returns true when it handled the Enter key. */
+    private boolean luaEnter() {
+        JEditTextArea ta = editor.getTextArea();
+        if (!ta.isEditable() || ta.getSelectionStart() != ta.getSelectionStop()) return false;
+
+        int caret     = ta.getCaretPosition();
+        int line      = ta.getCaretLine();
+        int lineStart = ta.getLineStartOffset(line);
+        String lineText = ta.getLineText(line);
+        if (lineText == null) return false;
+        int col = Math.max(0, Math.min(caret - lineStart, lineText.length()));
+        String before = lineText.substring(0, col);
+        String after  = lineText.substring(col);
+
+        boolean opens  = opensBlock(before);
+        boolean closes = after.isBlank() && closesBlock(lineText);
+        if (!opens && !closes) return false;
+
+        String indent = leadingWhitespace(lineText);
+        editor.startCompoundEdit();
+        try {
+            if (closes) {
+                String target = dedentTarget(previousCodeLine(ta, line), indentUnit());
+                // only ever pull a line back, and only when it is clearly too deep
+                if (target != null && target.length() < indent.length()) {
+                    ta.select(lineStart, lineStart + indent.length());
+                    ta.setSelectedText(target);
+                    indent = target;
+                    ta.setCaretPosition(lineStart + indent.length() + (col - leadingWhitespace(before).length()));
+                }
+            }
+            ta.setSelectedText("\n" + indent + (opens ? indentUnit() : ""));
+        } finally {
+            editor.stopCompoundEdit();
+        }
+        return true;
+    }
+
+    /** The nearest line above `line` that has code on it, or null. */
+    private static String previousCodeLine(JEditTextArea ta, int line) {
+        for (int i = line - 1; i >= 0 && i >= line - 200; i--) {
+            String t = ta.getLineText(i);
+            if (t != null && !t.replaceAll("--.*$", "").isBlank()) return t;
+        }
+        return null;
+    }
+
+    /** True when the line starts with a word that ends (or continues) a block. */
+    static boolean closesBlock(String line) {
+        String code = line.replaceAll("--.*$", "").strip();
+        return code.matches("(end|else|until|elseif)\\b.*") || code.startsWith("}");
+    }
+
+    /**
+     * Indentation a closing line should have, judged from the code line above
+     * it: level with that line if it opened the block (an empty block),
+     * otherwise one unit back from it. Null when there is no line above.
+     */
+    static String dedentTarget(String previousCodeLine, String unit) {
+        if (previousCodeLine == null) return null;
+        String prev = leadingWhitespace(previousCodeLine);
+        if (opensBlock(previousCodeLine)) return prev;
+        if (prev.endsWith(unit)) return prev.substring(0, prev.length() - unit.length());
+        if (prev.endsWith("\t")) return prev.substring(0, prev.length() - 1);
+        return prev.length() >= unit.length() ? prev.substring(0, prev.length() - unit.length()) : "";
     }
 
     private static String indentUnit() {
@@ -66,7 +146,7 @@ public class LuaInputHandler extends PdeInputHandler {
         String code = lineBeforeCaret.replaceAll("--.*$", "").stripTrailing();
         if (code.isEmpty()) return false;
         return code.matches(".*\\b(then|do|else|repeat)")
-            || code.matches(".*\\bfunction\\b.*\\)")
+            || code.matches(".*\\bfunction\\b[^()]*\\([^()]*\\)")
             || code.endsWith("{");
     }
 

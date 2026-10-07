@@ -77,6 +77,11 @@ public class LuaMode extends Mode {
         return nativeLoaded;
     }
 
+    /** For tests, which load the library themselves instead of going through a Mode instance. */
+    static void markNativeLoaded() {
+        nativeLoaded = true;
+    }
+
     private static void loadBundledLib(String libFile, String prefix) throws Exception {
         String resource = "lib/" + detectPlatform() + "/" + libFile;
         try (InputStream in = LuaMode.class.getClassLoader().getResourceAsStream(resource)) {

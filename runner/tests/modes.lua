@@ -1,0 +1,22 @@
+-- stdout: ok
+function setup() size(200, 200) noLoop() end
+function draw()
+  background(0) noStroke() fill(255)
+  rectMode(CENTER)   rect(50, 50, 20, 20)
+  assert(get(41, 41) == 255 and get(59, 59) == 255 and get(62, 62) == 0, "rectMode(CENTER)")
+  rectMode(CORNERS)  rect(100, 10, 120, 30)
+  assert(get(110, 20) == 255 and get(125, 20) == 0, "rectMode(CORNERS)")
+  rectMode(RADIUS)   rect(150, 150, 10, 10)
+  assert(get(141, 141) == 255 and get(159, 159) == 255, "rectMode(RADIUS)")
+  rectMode(CORNER)   rect(0, 100, 10, 10)
+  assert(get(5, 105) == 255 and get(15, 105) == 0, "rectMode(CORNER)")
+  ellipseMode(CORNER) ellipse(100, 100, 20, 20)
+  assert(get(110, 110) == 255 and get(101, 101) == 0, "ellipseMode(CORNER)")
+  ellipseMode(CENTER) circle(30, 150, 20)
+  assert(get(30, 150) == 255, "circle")
+  square(180, 0, 10)
+  assert(get(185, 5) == 255, "square")
+  rect(60, 180, 30, 15, 4)
+  assert(get(75, 187) == 255, "rounded rect")
+  print("ok") exit()
+end

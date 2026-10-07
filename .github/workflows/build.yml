@@ -51,6 +51,7 @@ jobs:
         env:
           SKIP_RUNNER: "1"
           PROCESSING_DIR: ${{ github.workspace }}/processing
+          LUAMODE_REQUIRE_NATIVE: "1"   # the parser tests must run here, not skip
         run: gradle test modeJar --no-daemon
 
       - name: Upload LuaMode.jar
@@ -152,6 +153,20 @@ jobs:
       - name: Build luamode-runner
         working-directory: runner
         run: cargo build --release --target ${{ matrix.target }}
+
+      # Real sketches in a real window (under a virtual display): drawing,
+      # errors, input events, and closing when the IDE goes away.
+      - name: Test luamode-runner (Linux)
+        if: runner.os == 'Linux'
+        working-directory: runner
+        env:
+          RUNNER: ${{ github.workspace }}/runner/target/${{ matrix.target }}/release/luamode-runner
+        run: |
+          sudo apt-get install -y -q xvfb xdotool
+          tests/run.sh
+          tests/examples.sh
+          tests/input.sh
+          tests/ide_gone.sh
 
       - name: Upload binary
         uses: actions/upload-artifact@v6

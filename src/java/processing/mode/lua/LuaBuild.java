@@ -10,6 +10,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Orchestrates a single build+run of a Lua sketch inside the Processing IDE.
@@ -40,8 +43,11 @@ public final class LuaBuild {
     private final File   modeFolder;
 
     // Set by buildSource(), read by run() and LuaErrorMapper
-    private int   headerLines;
-    private int[] tabStartLines;
+    private int      headerLines;
+    private int[]    tabStartLines;
+    private String[] tabNames;
+
+    private volatile Process proc;
 
     // ── Construction ──────────────────────────────────────────────────────
 
@@ -60,64 +66,145 @@ public final class LuaBuild {
     public List<LuaProblem> run() throws IOException, InterruptedException {
         RunLog.log("build: assembling " + sketch.getCodeCount() + " tab(s)");
         String source = buildSource();
-        Path   tmp    = writeTempFile(source);
-        RunLog.log("build: wrote " + tmp);
 
         String runner = resolveRunner();
         RunLog.log("build: runner = " + runner);
         if (runner == null) {
-            return List.of(new LuaProblem(0, 0,
-                "luamode-runner not found.  Build it with `cargo build --release` " +
-                "inside LuaMode/runner/ and copy the binary into " +
-                "mode/runner/<platform>/luamode-runner.",
+            return List.of(new LuaProblem(-1, -1,
+                "The sketch runner (luamode-runner) is missing for " + LuaMode.detectPlatform()
+                + ". Reinstall Lua Mode, or build it with `cargo build --release` in LuaMode/runner.",
                 LuaProblem.Severity.ERROR));
         }
 
+        Path tmp = writeTempFile(source);
+        RunLog.log("build: wrote " + tmp);
+        try {
+            return runProcess(runner, tmp);
+        } finally {
+            try { Files.deleteIfExists(tmp); } catch (IOException ignored) {}
+        }
+    }
+
+    /** Stops the sketch if it is running. Safe to call from any thread, any number of times. */
+    public void kill() {
+        Process p = proc;
+        if (p != null) stop(p);
+    }
+
+    // Sketch processes that are still alive. Emptied by a shutdown hook, so
+    // quitting the IDE never leaves sketch windows behind.
+    private static final Set<Process> LIVE = ConcurrentHashMap.newKeySet();
+    static {
+        try {
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                for (Process p : LIVE) p.destroyForcibly();
+            }, "luamode-stop-sketches"));
+        } catch (Throwable ignored) {}   // already shutting down
+    }
+
+    private static void stop(Process p) {
+        p.destroy();
+        try {
+            if (!p.waitFor(1, TimeUnit.SECONDS)) p.destroyForcibly();
+        } catch (InterruptedException e) {
+            p.destroyForcibly();
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private List<LuaProblem> runProcess(String runner, Path tmp) throws IOException, InterruptedException {
+        String chunk = tmp.getFileName().toString();
+
         ProcessBuilder pb = new ProcessBuilder(runner, tmp.toAbsolutePath().toString());
-        pb.directory(sketch.getFolder());   // relative paths (loadImage, saveFrame) resolve in the sketch
+        // relative paths (loadImage, saveFrame) resolve in the sketch folder;
+        // an untitled sketch whose temp folder is gone still has to run
+        File dir = sketch.getFolder();
+        pb.directory(dir != null && dir.isDirectory() ? dir : tmp.getParent().toFile());
+
+        // The sketch's stdin stays open and unused on purpose. The runner
+        // watches it: if the IDE dies without a chance to clean up (a crash,
+        // kill -9), the pipe closes and the sketch window closes with it
+        // instead of staying behind as an orphan.
+        pb.environment().put("LUAMODE_WATCH_STDIN", "1");
 
         RunLog.log("build: starting " + runner + " in " + pb.directory());
-        Process proc = pb.start();
+        Process p = pb.start();
+        proc = p;
+        LIVE.add(p);
 
         // Processing's console shows whatever goes to System.out / System.err,
         // so forward the runner's output there line by line as it arrives:
         // print() lands in the console like it does in Java mode. stderr is
         // also kept for mapping errors back to tab/line. Separate threads so
         // a full pipe on one stream can't block the other.
-        Thread drainOut = pump(proc.getInputStream(), System.out, null, "lua-stdout");
+        final int[] starts = tabStartLines;
+        final int   header = headerLines;
+        final String[] names = tabNames;
+        Thread drainOut = pump(p.getInputStream(), System.out, null, "lua-stdout", null);
         StringBuilder stderrBuf = new StringBuilder();
-        Thread drainErr = pump(proc.getErrorStream(), System.err, stderrBuf, "lua-stderr");
+        Thread drainErr = pump(p.getErrorStream(), System.err, stderrBuf, "lua-stderr",
+            line -> LuaErrorMapper.rewrite(line, chunk, header, starts, names));
 
+        int exit;
         try {
-            proc.waitFor();
+            exit = p.waitFor();
         } catch (InterruptedException ie) {
             // Stop pressed: close the sketch window
-            proc.destroy();
-            if (!proc.waitFor(1, java.util.concurrent.TimeUnit.SECONDS)) proc.destroyForcibly();
+            stop(p);
             Thread.currentThread().interrupt();
             throw ie;
+        } finally {
+            if (!p.isAlive()) LIVE.remove(p);
         }
 
-        drainOut.join(500);
-        drainErr.join(500);
+        drainOut.join(1000);
+        drainErr.join(1000);
+        LIVE.remove(p);
+        proc = null;
 
-        RunLog.log("build: runner exited with " + proc.exitValue());
-        if (proc.exitValue() == 0) return List.of();
+        RunLog.log("build: runner exited with " + exit);
+        if (exit == 0) return List.of();
+        // we stopped it ourselves (Stop, a new Run, closing the editor)
+        if (Thread.currentThread().isInterrupted()) return List.of();
 
-        return LuaErrorMapper.map(stderrBuf.toString(), headerLines, tabStartLines);
+        String err;
+        synchronized (stderrBuf) { err = stderrBuf.toString(); }
+        List<LuaProblem> problems = LuaErrorMapper.map(err, chunk, headerLines, tabStartLines);
+        if (problems.isEmpty()) {
+            problems = List.of(new LuaProblem(-1, -1,
+                "The sketch stopped unexpectedly (exit status " + exit + ").",
+                LuaProblem.Severity.ERROR));
+        }
+        return problems;
     }
 
+    // At most this much stderr is kept for error mapping. A sketch that
+    // floods stderr still shows everything in the console, it just doesn't
+    // get to grow this buffer without limit.
+    private static final int MAX_KEPT = 256 * 1024;
+
     private static Thread pump(java.io.InputStream in, java.io.PrintStream out,
-                               StringBuilder keep, String name) {
+                               StringBuilder keep, String name,
+                               java.util.function.UnaryOperator<String> shown) {
         Thread t = new Thread(() -> {
             try (java.io.BufferedReader r = new java.io.BufferedReader(
                     new java.io.InputStreamReader(in, StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = r.readLine()) != null) {
-                    out.println(line);
-                    if (keep != null) synchronized (keep) { keep.append(line).append('\n'); }
+                    if (keep != null) synchronized (keep) {
+                        if (keep.length() > MAX_KEPT) keep.delete(0, keep.length() - MAX_KEPT / 2);
+                        keep.append(line).append('\n');
+                    }
+                    String display = line;
+                    if (shown != null) {
+                        try { display = shown.apply(line); } catch (RuntimeException e) { display = line; }
+                    }
+                    out.println(display);
                 }
-            } catch (IOException ignored) {}
+            } catch (IOException ignored) {
+            } catch (Throwable t2) {
+                RunLog.log("output pump " + name + " failed", t2);
+            }
         }, name);
         t.setDaemon(true);
         t.start();
@@ -144,6 +231,7 @@ public final class LuaBuild {
 
         SketchCode[] codes = sketch.getCode();
         tabStartLines      = new int[codes.length];
+        tabNames           = new String[codes.length];
 
         StringBuilder sb = new StringBuilder(header);
 
@@ -153,8 +241,12 @@ public final class LuaBuild {
 
         for (int i = 0; i < codes.length; i++) {
             tabStartLines[i] = runningLines;
+            tabNames[i]      = codes[i].getFileName();
             String prog = codes[i].getProgram();
             if (prog == null) prog = "";
+            // one tab must not be able to swallow the next: "\r\n" and lone
+            // "\r" line ends would throw the line numbers off
+            prog = prog.replace("\r\n", "\n").replace('\r', '\n');
             sb.append(prog);
             if (!prog.endsWith("\n")) sb.append('\n');
             runningLines += countLines(prog) + (prog.endsWith("\n") ? 0 : 1);

@@ -25,6 +25,9 @@ public class LuaProblem {
     public Severity getSeverity()   { return severity; }
     public boolean  isError()       { return severity == Severity.ERROR; }
 
+    /** False for errors that don't belong to a line of the sketch (tab and line are -1). */
+    public boolean  hasLocation()   { return tabIndex >= 0 && lineNumber >= 0; }
+
     @Override
     public String toString() {
         return String.format("[%s] tab=%d line=%d : %s", severity, tabIndex, lineNumber, message);

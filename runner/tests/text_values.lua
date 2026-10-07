@@ -1,0 +1,21 @@
+-- stdout: ok
+function setup() size(200, 100) noLoop() end
+function draw()
+  background(0) fill(255)
+  text("plain", 10, 20)
+  text(42, 10, 30) text(3.5, 10, 40) text(true, 10, 50) text(nil, 10, 60)
+  text("", 10, 70)
+  text("ünïcödé ✓ 日本語", 10, 80)
+  text(string.rep("long ", 5000), 10, 90)
+  text("bad utf8 \xff\xfe", 10, 95)
+  text("off canvas", -5000, 1e7)
+  textSize(0) text("zero", 10, 10) textSize(-3) text("neg", 10, 10) textSize(5000) text("X", 10, 10)
+  textSize(12)
+  textAlign(CENTER, CENTER) text("c", 100, 50)
+  textAlign(RIGHT, BOTTOM)  text("r", 100, 50)
+  textAlign(LEFT, TOP)      text("l", 100, 50)
+  textAlign(LEFT)
+  assert(textWidth("hello") > 0 and textWidth("") == 0)
+  assert(textAscent() > 0 and textDescent() >= 0)
+  print("ok") exit()
+end

@@ -1,0 +1,4 @@
+-- rc: 124
+-- timeout: 3
+-- stderr-lines: 0
+-- A sketch with no setup and no draw opens a window and waits.

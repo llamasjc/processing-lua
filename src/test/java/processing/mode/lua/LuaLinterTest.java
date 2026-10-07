@@ -33,24 +33,15 @@ class LuaLinterTest {
 
     @BeforeAll
     static void loadNative() {
-        try {
-            engine = TsLuaEngine.get();
-            // Attempt a minimal parse to verify the native library is loaded and
-            // the Lua grammar is registered.
-            try (TsLuaEngine.ParseResult pr = engine.parse("-- ok")) {
-                assertNotNull(pr, "TsLuaEngine.parse returned null");
-            }
-            nativeAvailable = true;
-        } catch (UnsatisfiedLinkError | ExceptionInInitializerError | Exception ignored) {
-            // Native library not available — all tests in this class will be skipped.
-        }
+        nativeAvailable = NativeLib.load();
+        if (nativeAvailable) engine = TsLuaEngine.get();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private void assumeNative() {
         org.junit.jupiter.api.Assumptions.assumeTrue(nativeAvailable,
-            "libtree-sitter-lua not available — skipping linter integration test");
+            "native tree-sitter library not built, skipping linter integration test");
     }
 
     private List<LuaProblem> lint(String source) {
@@ -74,7 +65,7 @@ class LuaLinterTest {
             "  background(20)\n" +
             "end\n"
         );
-        assertTrue(ps.isEmpty(), "Clean sketch should produce no lint problems");
+        assertTrue(ps.isEmpty(), "Clean sketch should produce no lint problems: " + ps);
     }
 
     // ── Syntax error detection ─────────────────────────────────────────────────
@@ -217,4 +208,56 @@ class LuaLinterTest {
         assertEquals(0, warnings, "Reading the mousePressed boolean should not warn");
     }
 
+
+    // ── Comments, strings, odd shapes ──────────────────────────────────────────
+
+    @Test
+    void operatorsInsideBlockCommentAndLongString_notWarned() {
+        assumeNative();
+        List<LuaProblem> ps = lint(
+            "--[[\n" +
+            "  Click to draw! Use && and || like in Java? No: a != b is ~= here.\n" +
+            "  math.random is fine to mention too.\n" +
+            "]]\n" +
+            "local help = [[\n" +
+            "  press ! to shout, a != b\n" +
+            "]]\n" +
+            "function setup() end\n"
+        );
+        assertTrue(ps.isEmpty(), "text inside block comments and long strings is not code: " + ps);
+    }
+
+    @Test
+    void methodAndFieldCalls_notWarned() {
+        assumeNative();
+        List<LuaProblem> ps = lint(
+            "local scene = { draw = function() end, setup = function() end }\n" +
+            "function draw()\n" +
+            "  scene.draw()\n" +
+            "  scene:setup()\n" +
+            "end\n"
+        );
+        assertTrue(ps.isEmpty(), "obj.draw() and obj:setup() belong to the sketch: " + ps);
+    }
+
+    @Test
+    void veryDeepExpression_doesNotOverflow() {
+        assumeNative();
+        StringBuilder sb = new StringBuilder("local s = 'a'");
+        for (int i = 0; i < 20000; i++) sb.append(" .. 'a'");
+        sb.append("\nfunction setup() end\n");
+        assertDoesNotThrow(() -> lint(sb.toString()));
+    }
+
+    @Test
+    void garbageInput_doesNotThrow() {
+        assumeNative();
+        String[] inputs = {
+            "", "\n\n\n", "end end end", "function", "((((((((", "]]]]", "\"unterminated",
+            "--[[ never closed", "local \u00e9\u4e2d = 1 \ud83d\ude00", "\0\0\0", "if then else end until repeat",
+        };
+        for (String in : inputs) {
+            assertDoesNotThrow(() -> lint(in), "input: " + in);
+        }
+    }
 }

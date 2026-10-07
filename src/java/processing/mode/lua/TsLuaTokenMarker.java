@@ -67,22 +67,31 @@ public class TsLuaTokenMarker extends TokenMarker {
     private static final int[] SINGLE_TAB = {0};
 
     // ── Background scheduler ──────────────────────────────────────────────
-    private final ScheduledExecutorService scheduler;
+    // One thread for every editor and tab. Parsing is quick, and a single
+    // thread means the shared query below is never used from two at once.
+    private static final ScheduledExecutorService scheduler = newScheduler();
     private volatile ScheduledFuture<?> pending;
+    private volatile boolean disposed;
     private static final long DEBOUNCE_MS = 150;
 
     // ── Cached query ──────────────────────────────────────────────────────
-    private volatile Query tsQuery;
+    // Shared by all markers and never closed: closing it when one editor
+    // window shuts would pull native memory out from under a parse still
+    // running for another.
+    private static volatile Query tsQuery;
+    private static volatile boolean queryFailed;
 
     // java-tree-sitter 1.9.1 does not evaluate query predicates, so a pattern
     // like ((identifier) @function.builtin (#match? @function.builtin "^(fill|rect)$"))
     // matches EVERY identifier. We read the #match? regexes out of the .scm
     // ourselves and check captured text against them. Capture name -> regexes.
-    private volatile Map<String, List<Pattern>> matchPredicates = Map.of();
+    private static volatile Map<String, List<Pattern>> matchPredicates = Map.of();
     private static final Pattern MATCH_PREDICATE =
         Pattern.compile("\\(#match\\?\\s+@([\\w.]+)\\s+\"((?:[^\"\\\\]|\\\\.)*)\"\\s*\\)");
 
-    public TsLuaTokenMarker() {
+    public TsLuaTokenMarker() {}
+
+    private static ScheduledExecutorService newScheduler() {
         ScheduledThreadPoolExecutor ex =
             new ScheduledThreadPoolExecutor(1, r -> {
                 Thread t = new Thread(r, "lua-ts-highlighter");
@@ -90,7 +99,7 @@ public class TsLuaTokenMarker extends TokenMarker {
                 return t;
             });
         ex.setRemoveOnCancelPolicy(true);
-        scheduler = ex;
+        return ex;
     }
 
     // ── TokenMarker overrides ─────────────────────────────────────────────
@@ -152,14 +161,35 @@ public class TsLuaTokenMarker extends TokenMarker {
     // ── Invalidation / rebuild ────────────────────────────────────────────
 
     public synchronized void invalidate(SyntaxDocument doc) {
+        if (disposed) return;
         this.syntaxDoc = doc;
         if (pending != null) pending.cancel(false);
-        pending = scheduler.schedule(this::rebuildHighlights, DEBOUNCE_MS, TimeUnit.MILLISECONDS);
+        try {
+            pending = scheduler.schedule(this::rebuildSafely, DEBOUNCE_MS, TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {}
+    }
+
+    // An exception escaping a scheduled task is swallowed without a trace, and
+    // an Error (a native library that failed to load, say) would do the same
+    // on every keystroke. Report the first one, then stay quiet.
+    private static volatile boolean reportedFailure;
+
+    private void rebuildSafely() {
+        try {
+            rebuildHighlights();
+        } catch (Throwable t) {
+            if (!reportedFailure) {
+                reportedFailure = true;
+                System.err.println("[LuaMode] syntax highlighting stopped working: " + t);
+            }
+        }
     }
 
     private void rebuildHighlights() {
         SyntaxDocument doc = syntaxDoc;
-        if (doc == null) return;
+        if (doc == null || disposed) return;
+        // without the native library there is nothing to parse with
+        if (!LuaMode.isNativeLoaded()) return;
 
         String src;
         try {
@@ -177,6 +207,9 @@ public class TsLuaTokenMarker extends TokenMarker {
             byte[] hl   = new byte[src.length()];
             byte[] rank = new byte[src.length()];   // priority of what's painted at each char
             Map<String, List<Pattern>> preds = matchPredicates;
+            // every identifier is offered to every name-list pattern, so the
+            // same few names get checked over and over: remember the answers
+            Map<String, Boolean> verdicts = new HashMap<>();
 
             try (QueryCursor cursor = pr.root.walk(q)) {
                 for (QueryMatch match : cursor) {
@@ -190,9 +223,14 @@ public class TsLuaTokenMarker extends TokenMarker {
                         List<Pattern> regexes = preds.get(captureName);
                         for (Node node : entry.getValue()) {
                             // offsets are Java char indexes (the parser reads UTF-16)
-                            int start = Math.min(node.getStartByte(), src.length());
-                            int end   = Math.min(node.getEndByte(),   src.length());
-                            if (regexes != null && !matchesAny(regexes, src.substring(start, end))) continue;
+                            int start = Math.max(0, Math.min(node.getStartByte(), src.length()));
+                            int end   = Math.max(start, Math.min(node.getEndByte(), src.length()));
+                            if (regexes != null) {
+                                String text = src.substring(start, end);
+                                boolean ok = verdicts.computeIfAbsent(captureName + '\0' + text,
+                                    k -> matchesAny(regexes, text));
+                                if (!ok) continue;
+                            }
                             for (int b = start; b < end; b++) {
                                 if (r >= rank[b]) { hl[b] = tokType; rank[b] = r; }
                             }
@@ -204,6 +242,7 @@ public class TsLuaTokenMarker extends TokenMarker {
             // Precompute line-start offsets so markTokensImpl is O(1) per line.
             int[] offsets = buildLineOffsets(src);
 
+            if (disposed) return;
             highlightedSource = src;
             lineOffsets = offsets;   // write lineOffsets before highlights so
             highlights.set(hl);      // markTokensImpl never sees a stale pair
@@ -211,7 +250,12 @@ public class TsLuaTokenMarker extends TokenMarker {
             // Run the linter on the same parse result
             Consumer<List<LuaProblem>> consumer = lintConsumer;
             if (consumer != null) {
-                List<LuaProblem> problems = linter.lint(src, pr.root, SINGLE_TAB);
+                List<LuaProblem> problems;
+                try {
+                    problems = linter.lint(src, pr.root, SINGLE_TAB);
+                } catch (Throwable e) {
+                    problems = List.of();   // a linter bug must not cost the colors
+                }
                 consumer.accept(problems);
             }
 
@@ -251,19 +295,38 @@ public class TsLuaTokenMarker extends TokenMarker {
 
     // ── Query loading ─────────────────────────────────────────────────────
 
-    private Query ensureQuery() {
-        if (tsQuery != null) return tsQuery;
-        synchronized (this) {
-            if (tsQuery != null) return tsQuery;
+    private static Query ensureQuery() {
+        if (tsQuery != null || queryFailed) return tsQuery;
+        synchronized (TsLuaTokenMarker.class) {
+            if (tsQuery != null || queryFailed) return tsQuery;
             try {
-                String scm = loadResource("/queries/highlights.scm");
+                String scm = toAscii(loadResource("/queries/highlights.scm"));
                 matchPredicates = parseMatchPredicates(scm);
                 tsQuery = Query.getFor(Language.LUA, scm);
-            } catch (Exception e) {
-                System.err.println("[LuaMode] Failed to load highlights.scm: " + e.getMessage());
+            } catch (Throwable e) {
+                // say it once; retrying on every keystroke would fail the same way
+                queryFailed = true;
+                System.err.println("[LuaMode] Failed to load highlights.scm: " + e);
             }
         }
         return tsQuery;
+    }
+
+    /**
+     * java-tree-sitter 1.9.1 passes the query to tree-sitter with its length
+     * in Java chars while the text itself is UTF-8, so each non-ASCII
+     * character makes the query that many bytes short and the patterns at the
+     * end of the file quietly disappear (or the cut lands mid-pattern and the
+     * whole query is rejected). The file is kept ASCII; this makes sure a
+     * stray dash in a comment can never bring that back.
+     */
+    static String toAscii(String scm) {
+        StringBuilder sb = new StringBuilder(scm.length());
+        for (int i = 0; i < scm.length(); i++) {
+            char c = scm.charAt(i);
+            sb.append(c < 128 ? c : '?');
+        }
+        return sb.toString();
     }
 
     private static String loadResource(String path) throws IOException {
@@ -281,7 +344,11 @@ public class TsLuaTokenMarker extends TokenMarker {
         Matcher m = MATCH_PREDICATE.matcher(scm);
         while (m.find()) {
             String regex = m.group(2).replace("\\\\", "\\");   // unescape the .scm string
-            out.computeIfAbsent(m.group(1), k -> new ArrayList<>()).add(Pattern.compile(regex));
+            try {
+                out.computeIfAbsent(m.group(1), k -> new ArrayList<>()).add(Pattern.compile(regex));
+            } catch (java.util.regex.PatternSyntaxException bad) {
+                System.err.println("[LuaMode] ignoring a bad #match? pattern in highlights.scm: " + bad.getDescription());
+            }
         }
         return out;
     }
@@ -329,13 +396,13 @@ public class TsLuaTokenMarker extends TokenMarker {
 
     // ── Cleanup ───────────────────────────────────────────────────────────
 
-    public void dispose() {
-        scheduler.shutdownNow();
+    public synchronized void dispose() {
+        disposed = true;
+        if (pending != null) pending.cancel(false);
+        lintConsumer = null;
+        repaintHook = null;
+        syntaxDoc = null;
         highlights.set(EMPTY);
         lineOffsets = EMPTY_LINES;
-        if (tsQuery != null) {
-            tsQuery.close();
-            tsQuery = null;
-        }
     }
 }

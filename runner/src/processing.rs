@@ -1,12 +1,23 @@
 //! Adapter between the Lua bindings in main.rs and RustMode's engine.
 //!
-//! main.rs was written against a libprocessing-style API: colors arrive
-//! normalized to 0..1 (see unpack_color), constants use Lua-side numbering
-//! (LEFT 0, RIGHT 1, CENTER 2, ...), and a few calls have different arities
-//! than the engine's Rust-facing API. Everything is translated here so the
-//! bindings stay readable and the engine stays Processing-shaped for RustMode.
+//! The Lua side uses Processing's own constant values where one name serves
+//! several jobs (LEFT is a key code, a mouse button and a text alignment), and
+//! a few calls have different arities than the engine's Rust-facing API.
+//! Everything is translated here so the bindings stay readable and the engine
+//! stays Processing-shaped for RustMode.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
+
+// Constants as the Lua globals define them (Processing's values).
+pub const LEFT: i32 = 37;
+pub const RIGHT: i32 = 39;
+pub const CENTER: i32 = 3;
+pub const TOP: i32 = 101;
+pub const BOTTOM: i32 = 102;
+pub const BASELINE: i32 = 0;
+pub const CORNER: i32 = 0;
+pub const CORNERS: i32 = 1;
+pub const RADIUS: i32 = 2;
 
 pub use engine::App;
 
@@ -20,9 +31,18 @@ pub fn mouse_is_pressed() -> bool { engine::mouse_pressed_global() }
 pub fn key_is_pressed() -> bool   { engine::key_pressed_global() }
 pub fn key_char() -> char         { engine::key() }
 
-/// Lua-side button numbering: LEFT 0, RIGHT 1, CENTER 2.
-pub fn mouse_button() -> i32 {
-    match engine::mouse_button() { 39 => 1, 3 => 2, _ => 0 }
+/// The button that was pressed last: LEFT 37, RIGHT 39, CENTER 3 (0 before
+/// the first press). It stays set in mouseReleased() and mouseClicked(), so
+/// those can tell which button it was.
+pub fn mouse_button() -> i32 { engine::mouse_button() as i32 }
+
+/// Keys with no character of their own (arrows, modifiers). Processing sets
+/// `key` to CODED for these and the sketch reads `keyCode` instead.
+pub fn key_is_coded() -> bool {
+    let k = engine::key_code();
+    [engine::UP, engine::DOWN, engine::LEFT, engine::RIGHT, engine::SHIFT, engine::CONTROL,
+     engine::HOME, engine::END, engine::PAGE_UP, engine::PAGE_DOWN].contains(&k)
+        || (engine::F1..=engine::F12).contains(&k)
 }
 
 /// Translate the engine's key codes (minifb) to the Processing / Java codes
@@ -43,25 +63,28 @@ pub fn key_code() -> u32 {
         k if k == engine::SHIFT     => 16,
         k if k == engine::CONTROL   => 17,
         0 => 0,
-        _ => engine::key() as u32,
+        // letters report the uppercase code, like Java's key codes ('a' is 65)
+        _ => engine::key().to_ascii_uppercase() as u32,
     }
 }
 
 // ── Environment ───────────────────────────────────────────────────────────
 
 pub fn size(w: u32, h: u32)  { engine::size(w, h) }
+pub fn window_title(t: &str) { engine::window_title(t) }
+pub fn smooth(on: bool)      { if on { engine::smooth() } else { engine::no_smooth() } }
 pub fn width() -> f32        { engine::width() }
 pub fn height() -> f32       { engine::height() }
 pub fn frame_count() -> u64  { engine::frame_count() }
 pub fn frame_rate() -> f32   { engine::current_frame_rate() }
-pub fn set_frame_rate(fps: f32) { engine::frame_rate(fps) }
+/// Sets the target and returns what the engine made of it (clamped).
+pub fn set_frame_rate(fps: f32) -> f32 { engine::frame_rate(fps); engine::current_frame_rate() }
 pub fn millis() -> u64       { engine::millis() }
 pub fn set_loop(on: bool)    { if on { engine::r#loop() } else { engine::no_loop() } }
 pub fn redraw()              { engine::redraw() }
 pub fn exit()                { engine::exit() }
 pub fn show_cursor()         { engine::cursor() }
 pub fn hide_cursor()         { engine::no_cursor() }
-pub fn println(s: &str)      { engine::println(s) }
 
 // ── Color ─────────────────────────────────────────────────────────────────
 //
@@ -144,9 +167,36 @@ pub fn lerp_color(r1: f32, g1: f32, b1: f32, r2: f32, g2: f32, b2: f32, t: f32) 
 
 // ── Shapes ────────────────────────────────────────────────────────────────
 
-pub fn rect(x: f32, y: f32, w: f32, h: f32)    { engine::rect(x, y, w, h) }
-pub fn ellipse(x: f32, y: f32, w: f32, h: f32) { engine::ellipse(x, y, w, h) }
-pub fn circle(x: f32, y: f32, d: f32)          { engine::circle(x, y, d) }
+// rectMode / ellipseMode: the engine draws rects from the corner and ellipses
+// from the center, so the four numbers are converted here.
+static RECT_MODE: AtomicI32 = AtomicI32::new(CORNER);
+static ELLIPSE_MODE: AtomicI32 = AtomicI32::new(CENTER);
+pub fn rect_mode(m: i32)    { RECT_MODE.store(m, Ordering::Relaxed) }
+pub fn ellipse_mode(m: i32) { ELLIPSE_MODE.store(m, Ordering::Relaxed) }
+
+/// (a, b, c, d) in the given mode to corner x, y, width, height.
+fn to_corner(mode: i32, a: f32, b: f32, c: f32, d: f32) -> (f32, f32, f32, f32) {
+    match mode {
+        CORNERS => (a.min(c), b.min(d), (c - a).abs(), (d - b).abs()),
+        CENTER  => (a - c / 2.0, b - d / 2.0, c, d),
+        RADIUS  => (a - c, b - d, c * 2.0, d * 2.0),
+        _       => (a, b, c, d),
+    }
+}
+
+pub fn rect(a: f32, b: f32, c: f32, d: f32) {
+    let (x, y, w, h) = to_corner(RECT_MODE.load(Ordering::Relaxed), a, b, c, d);
+    engine::rect(x, y, w, h)
+}
+pub fn rect_rounded(a: f32, b: f32, c: f32, d: f32, r: f32) {
+    let (x, y, w, h) = to_corner(RECT_MODE.load(Ordering::Relaxed), a, b, c, d);
+    engine::rect_rounded(x, y, w, h, r)
+}
+pub fn ellipse(a: f32, b: f32, c: f32, d: f32) {
+    let (x, y, w, h) = to_corner(ELLIPSE_MODE.load(Ordering::Relaxed), a, b, c, d);
+    engine::ellipse(x + w / 2.0, y + h / 2.0, w, h)
+}
+pub fn circle(x: f32, y: f32, d: f32) { ellipse(x, y, d, d) }
 pub fn line(x1: f32, y1: f32, x2: f32, y2: f32) { engine::line(x1, y1, x2, y2) }
 pub fn point(x: f32, y: f32)                   { engine::point(x, y) }
 pub fn triangle(x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) {
@@ -165,6 +215,8 @@ pub fn bezier(x1: f32, y1: f32, cx1: f32, cy1: f32, cx2: f32, cy2: f32, x2: f32,
 pub fn curve(cx1: f32, cy1: f32, x1: f32, y1: f32, x2: f32, y2: f32, cx2: f32, cy2: f32) {
     engine::curve(cx1, cy1, x1, y1, x2, y2, cx2, cy2)
 }
+
+pub fn quadratic_vertex(cx: f32, cy: f32, x: f32, y: f32) { engine::quadratic_vertex(cx, cy, x, y) }
 
 /// Lua kinds: POINTS 0, LINES 1, TRIANGLES 4, TRIANGLE_STRIP 5,
 /// TRIANGLE_FAN 6, QUADS 7, QUAD_STRIP 8, anything else polygon.
@@ -204,18 +256,15 @@ pub fn text_width(s: &str) -> f32    { engine::text_width(s) }
 pub fn text_ascent() -> f32          { engine::text_ascent() }
 pub fn text_descent() -> f32         { engine::text_descent() }
 
-/// Lua constants: LEFT 0, RIGHT 1, CENTER 2, TOP 3, BOTTOM 4, and anything
-/// else vertical (BASELINE) is the Processing default, baseline.
+/// Anything unrecognised falls back to Processing's defaults: LEFT, BASELINE.
 pub fn text_align(h: i32, v: i32) {
-    let hh = match h { 1 => engine::ALIGN_RIGHT, 2 => engine::ALIGN_CENTER, _ => engine::ALIGN_LEFT };
-    let vv = match v { 2 => engine::ALIGN_CENTER, 3 => engine::ALIGN_TOP, 4 => engine::ALIGN_BOTTOM, _ => engine::ALIGN_BASELINE };
+    let hh = match h { RIGHT => engine::ALIGN_RIGHT, CENTER => engine::ALIGN_CENTER, _ => engine::ALIGN_LEFT };
+    let vv = match v { CENTER => engine::ALIGN_CENTER, TOP => engine::ALIGN_TOP, BOTTOM => engine::ALIGN_BOTTOM, _ => engine::ALIGN_BASELINE };
     engine::text_align(hh, vv)
 }
 
 // ── Math ──────────────────────────────────────────────────────────────────
 
-pub fn noise1(x: f32) -> f32               { engine::noise(x) }
-pub fn noise2(x: f32, y: f32) -> f32       { engine::noise2(x, y) }
 pub fn noise3(x: f32, y: f32, z: f32) -> f32 { engine::noise3(x, y, z) }
 pub fn noise_seed(seed: u64)               { engine::noise_seed(seed) }
 pub fn noise_detail(oct: i32, fall: f32)   { engine::noise_detail(oct.max(0) as u32, fall) }
@@ -230,3 +279,4 @@ pub fn image(id: u64, x: f32, y: f32) { engine::image(id, x, y) }
 pub fn image_sized(id: u64, x: f32, y: f32, w: f32, h: f32) { engine::image_sized(id, x, y, w, h) }
 
 pub fn save_frame(name: &str) { engine::save_frame(name) }
+pub fn get_pixel(x: i32, y: i32) -> (u8, u8, u8) { engine::get_pixel(x, y) }

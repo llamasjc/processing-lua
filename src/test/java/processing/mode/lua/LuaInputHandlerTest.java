@@ -140,4 +140,60 @@ class LuaInputHandlerTest {
         // "a'" at pos=1 → next char is ' → should over-type regardless of 'a' before it
         assertTrue(LuaInputHandler.shouldOverType("a'", 1, '\''));
     }
+
+    // ── Enter: what opens a block, what closes one ────────────────────────────
+
+    @Test
+    void opensBlock_realOpeners() {
+        for (String line : new String[]{
+                "if x then", "  for i = 1, 10 do", "while true do", "else", "  repeat",
+                "function setup()", "local function f(a, b)", "local cb = function()",
+                "button.onClick(function()", "local t = {", "if a then -- why",
+                "elseif y then" }) {
+            assertTrue(LuaInputHandler.opensBlock(line), line);
+        }
+    }
+
+    @Test
+    void opensBlock_notOpeners() {
+        for (String line : new String[]{
+                "", "   ", "x = 1", "end", "print('then')x", "-- if x then",
+                "function f() end", "foo(function() return 1 end)", "local t = {}",
+                "until done", "doSomething()", "x = y -- do" }) {
+            assertFalse(LuaInputHandler.opensBlock(line), line);
+        }
+    }
+
+    @Test
+    void closesBlock_recognisesClosers() {
+        for (String line : new String[]{ "end", "  end", "end)", "end -- of loop", "else", "    elseif x then",
+                                         "until n > 3", "}", "  })", "},"}) {
+            assertTrue(LuaInputHandler.closesBlock(line), line);
+        }
+        for (String line : new String[]{ "", "endpoint = 3", "elsewhere()", "untilNow = 1", "x = 1", "send()",
+                                         "-- end", "print('end')" }) {
+            assertFalse(LuaInputHandler.closesBlock(line), line);
+        }
+    }
+
+    @Test
+    void dedentTarget_oneLevelBackFromBody() {
+        assertEquals("",     LuaInputHandler.dedentTarget("  x = 1", "  "));
+        assertEquals("  ",   LuaInputHandler.dedentTarget("    x = 1", "  "));
+        assertEquals("    ", LuaInputHandler.dedentTarget("        x = 1", "    "));
+        assertEquals("\t",   LuaInputHandler.dedentTarget("\t\tx = 1", "  "));
+    }
+
+    @Test
+    void dedentTarget_levelWithOpenerForEmptyBlock() {
+        assertEquals("  ", LuaInputHandler.dedentTarget("  if x then", "  "));
+        assertEquals("",   LuaInputHandler.dedentTarget("function draw()", "  "));
+    }
+
+    @Test
+    void dedentTarget_edges() {
+        assertEquals(null, LuaInputHandler.dedentTarget(null, "  "));
+        assertEquals("",   LuaInputHandler.dedentTarget("x = 1", "  "));     // already at the margin
+        assertEquals("",   LuaInputHandler.dedentTarget(" x = 1", "  "));    // less than one unit in
+    }
 }

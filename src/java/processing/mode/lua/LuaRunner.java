@@ -5,6 +5,7 @@ import processing.app.Sketch;
 
 import java.io.File;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Drives {@link LuaBuild} on a background thread and reports results
@@ -22,34 +23,45 @@ public final class LuaRunner {
     private final Sketch         sketch;
     private final File           modeFolder;
     private final RunnerListener listener;
+    private final Consumer<List<LuaProblem>> onProblems;
     private final Runnable       onComplete;
-    private       Thread         thread;
+    private volatile Thread      thread;
+    private volatile LuaBuild    build;
+    private volatile boolean     halted;
 
     /**
+     * @param onProblems called (on the runner thread) with the errors of a run
+     *                   that failed; never called for a run that was stopped
      * @param onComplete called once when the runner thread finishes (any outcome).
      *                   May be {@code null} if no callback is needed.
      */
     public LuaRunner(Sketch sketch, File modeFolder, RunnerListener listener,
-                     Runnable onComplete) {
+                     Consumer<List<LuaProblem>> onProblems, Runnable onComplete) {
         this.sketch     = sketch;
         this.modeFolder = modeFolder;
         this.listener   = listener;
+        this.onProblems = onProblems;
         this.onComplete = onComplete != null ? onComplete : () -> {};
     }
 
     // ── Control ───────────────────────────────────────────────────────────
 
     public void launch() {
-        thread = new Thread(this::doRun, "lua-runner");
-        thread.setDaemon(true);
-        thread.start();
+        Thread t = new Thread(this::doRun, "lua-runner");
+        t.setDaemon(true);
+        thread = t;
+        t.start();
     }
 
+    /** Stops the sketch. Safe to call more than once and from any thread. */
     public void halt() {
-        if (thread != null) {
-            thread.interrupt();
-            thread = null;
-        }
+        halted = true;
+        // Kill the process directly as well as interrupting: the interrupt
+        // alone only works while the thread is parked in waitFor().
+        LuaBuild b = build;
+        if (b != null) b.kill();
+        Thread t = thread;
+        if (t != null) t.interrupt();
     }
 
     // ── Worker ────────────────────────────────────────────────────────────
@@ -57,42 +69,39 @@ public final class LuaRunner {
     private void doRun() {
         RunLog.log("runner thread started");
         try {
-            LuaBuild build = new LuaBuild(sketch, modeFolder);
-            List<LuaProblem> problems = build.run();
+            LuaBuild b = new LuaBuild(sketch, modeFolder);
+            build = b;
+            if (halted) return;
+            List<LuaProblem> problems = b.run();
 
-            if (Thread.currentThread().isInterrupted()) return;
+            if (halted || Thread.currentThread().isInterrupted()) return;
 
             if (problems.isEmpty()) {
                 listener.statusNotice("Done.");
+            } else if (onProblems != null) {
+                onProblems.accept(problems);
             } else {
-                LuaProblem first = problems.stream()
-                    .filter(LuaProblem::isError)
-                    .findFirst()
-                    .orElse(problems.get(0));
-
-                listener.statusError(formatProblem(first));
-
-                if (problems.size() > 1) {
-                    listener.statusNotice(
-                        String.format("%d error%s found.",
-                            problems.size(), problems.size() == 1 ? "" : "s"));
-                }
+                listener.statusError(formatProblem(problems.get(0)));
             }
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Throwable e) {
+            if (halted) return;
             RunLog.log("run failed", e);
-            listener.statusError("LuaMode: " + e.getMessage());
-            e.printStackTrace();
+            String why = e.getMessage() != null ? e.getMessage() : e.toString();
+            listener.statusError("Could not run the sketch: " + why);
+            System.err.println("[LuaMode] could not run the sketch: " + e);
         } finally {
             // Always notify the editor that this runner has finished, so it can
             // clear its reference and re-enable lint feedback.
-            onComplete.run();
+            try { onComplete.run(); } catch (Throwable t) { RunLog.log("onComplete failed", t); }
         }
     }
 
-    private static String formatProblem(LuaProblem p) {
-        return String.format("Line %d: %s", p.getLineNumber() + 1, p.getMessage());
+    static String formatProblem(LuaProblem p) {
+        return p.hasLocation()
+            ? String.format("Line %d: %s", p.getLineNumber() + 1, p.getMessage())
+            : p.getMessage();
     }
 }

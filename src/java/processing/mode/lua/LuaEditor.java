@@ -1,6 +1,8 @@
 package processing.mode.lua;
 
 import processing.app.Base;
+import processing.app.SketchCode;
+import processing.app.syntax.SyntaxDocument;
 import processing.app.syntax.JEditTextArea;
 import processing.app.syntax.PdeTextArea;
 import processing.app.syntax.PdeTextAreaDefaults;
@@ -12,19 +14,29 @@ import javax.swing.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.io.File;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class LuaEditor extends Editor {
 
     private final LuaMode         luaMode;
     private volatile LuaRunner    runner;
-    private TsLuaTokenMarker      tokenMarker;
+
+    // One token marker per tab. Each tab has its own document, and a marker
+    // holds the colors for exactly one text, so sharing one between tabs
+    // would paint tab A with tab B's colors.
+    private final Map<SyntaxDocument, TsLuaTokenMarker> markers = new IdentityHashMap<>();
+    private boolean ready;   // false while Editor's constructor is still running
 
     public LuaEditor(Base base, String path, EditorState state, LuaMode mode)
             throws Exception {
         super(base, path, state, mode);
         this.luaMode = mode;
-        installTokenMarker();
+        ready = true;
+        attachTokenMarker();
     }
 
     // ── Text area ─────────────────────────────────────────────────────────
@@ -39,31 +51,74 @@ public class LuaEditor extends Editor {
         return new PdeTextArea(new PdeTextAreaDefaults(getMode()), new LuaInputHandler(this), this);
     }
 
-    // ── Token marker ──────────────────────────────────────────────────────
+    // ── Token markers ─────────────────────────────────────────────────────
 
-    private void installTokenMarker() {
-        tokenMarker = new TsLuaTokenMarker();
-        tokenMarker.setLintConsumer(this::onLintResults);
-        // highlights are rebuilt off the EDT; repaint once they're ready
-        tokenMarker.setRepaintHook(() -> javax.swing.SwingUtilities.invokeLater(
-            () -> getTextArea().getPainter().repaint()));
-        processing.app.syntax.SyntaxDocument doc =
-            (processing.app.syntax.SyntaxDocument) getTextArea().getDocument();
-        doc.setTokenMarker(tokenMarker);
-        doc.addDocumentListener(new javax.swing.event.DocumentListener() {
-            public void insertUpdate(javax.swing.event.DocumentEvent e)  { invalidateHighlights(); }
-            public void removeUpdate(javax.swing.event.DocumentEvent e)  { invalidateHighlights(); }
-            public void changedUpdate(javax.swing.event.DocumentEvent e) { invalidateHighlights(); }
-        });
-        invalidateHighlights();
+    /**
+     * Editor calls this whenever another tab is shown (and while a sketch is
+     * loading). The tab's document may be brand new, so this is the place to
+     * give it a marker.
+     */
+    @Override
+    public void setCode(SketchCode code) {
+        super.setCode(code);
+        if (ready) {
+            try {
+                attachTokenMarker();
+            } catch (Throwable t) {
+                System.err.println("[LuaMode] couldn't set up highlighting for this tab: " + t);
+            }
+        }
     }
 
-    private void onLintResults(List<LuaProblem> problems) {
-        javax.swing.SwingUtilities.invokeLater(() -> showLintProblems(problems));
+    /** Makes sure the document now in the text area has a Lua token marker. */
+    private void attachTokenMarker() {
+        if (!(getTextArea().getDocument() instanceof SyntaxDocument doc)) return;
+        if (markers.containsKey(doc)) return;
+
+        TsLuaTokenMarker marker = new TsLuaTokenMarker();
+        marker.setLintConsumer(problems -> SwingUtilities.invokeLater(() -> {
+            // only the tab on screen gets to use the status line
+            if (getTextArea().getDocument() == doc) showLintProblems(problems);
+        }));
+        // highlights are rebuilt off the EDT; repaint once they're ready
+        marker.setRepaintHook(() -> SwingUtilities.invokeLater(() -> {
+            if (getTextArea().getDocument() == doc) getTextArea().getPainter().repaint();
+        }));
+        doc.setTokenMarker(marker);
+        doc.addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e)  { edited(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e)  { edited(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { edited(); }
+            private void edited() {
+                runErrorShowing = false;   // the code changed; the old run's error is history
+                marker.invalidate(doc);
+            }
+        });
+        markers.put(doc, marker);
+        marker.invalidate(doc);
+        forgetClosedTabs();
+    }
+
+    /** Drops the markers of tabs that no longer exist (deleted, or the sketch was reloaded). */
+    private void forgetClosedTabs() {
+        if (markers.size() <= sketch.getCodeCount()) return;
+        Set<SyntaxDocument> open = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (SketchCode c : sketch.getCode()) {
+            if (c.getDocument() instanceof SyntaxDocument d) open.add(d);
+        }
+        markers.entrySet().removeIf(e -> {
+            if (open.contains(e.getKey())) return false;
+            e.getValue().dispose();
+            return true;
+        });
     }
 
     private void showLintProblems(List<LuaProblem> problems) {
         if (runner != null) return;
+        // The error of the run that just failed stays until the code is
+        // edited. It names the real problem; the linter can only say
+        // "Syntax error".
+        if (runErrorShowing) return;
         if (problems.isEmpty()) { statusEmpty(); return; }
         LuaProblem first = problems.stream()
             .filter(LuaProblem::isError).findFirst().orElse(problems.get(0));
@@ -72,10 +127,12 @@ public class LuaEditor extends Editor {
         if (first.isError()) statusError(msg); else statusNotice(msg);
     }
 
+    private boolean runErrorShowing;
+
     void invalidateHighlights() {
-        if (tokenMarker != null) {
-            tokenMarker.invalidate(
-                (processing.app.syntax.SyntaxDocument) getTextArea().getDocument());
+        if (getTextArea().getDocument() instanceof SyntaxDocument doc) {
+            TsLuaTokenMarker m = markers.get(doc);
+            if (m != null) m.invalidate(doc);
         }
     }
 
@@ -88,9 +145,10 @@ public class LuaEditor extends Editor {
         stopCurrentRunner();
     }
 
+    /** The Run button goes back to normal. Stopping the sketch is internalCloseRunner's job. */
     @Override
     public void deactivateRun() {
-        stopCurrentRunner();
+        try { getToolbar().deactivateRun(); } catch (Throwable ignored) {}
     }
 
     // Real menus: Editor adds the standard items (Import Library etc.) through
@@ -137,7 +195,7 @@ public class LuaEditor extends Editor {
     public JMenu buildHelpMenu() {
         JMenu help = new JMenu("Help");
         JMenuItem site = new JMenuItem("Lua Mode on GitHub");
-        site.addActionListener(e -> openUrl("https://github.com/processing-cpp/processing-lua"));
+        site.addActionListener(e -> openUrl("https://github.com/pepc84/LuaMode"));
         help.add(site);
         JMenuItem ref = new JMenuItem("Lua 5.4 Reference Manual");
         ref.addActionListener(e -> openUrl("https://www.lua.org/manual/5.4/"));
@@ -151,34 +209,76 @@ public class LuaEditor extends Editor {
 
     /** Called by the toolbar's handleRun(int mode). mode 0=Run, 1=Present. */
     void startRunner(boolean present) {
-        prepareRun();
-        // Copy each tab's live editor text into the sketch (and clear the
-        // console if that preference is on). Without this, Run used what was
-        // last saved to disk, so an unsaved sketch ran as an empty file.
-        prepareRun();
-        RunLog.log("Run pressed (present=" + present + ") sketch=" + sketch.getName()
-            + " folder=" + sketch.getFolder());
-        stopCurrentRunner();
-        statusEmpty();
-        LuaRunner[] ref = {null};
-        LuaRunner thisRunner = new LuaRunner(sketch, luaMode.getFolder(), this,
-            () -> onRunnerFinished(ref[0]));
-        ref[0] = thisRunner;
-        runner  = thisRunner;
-        thisRunner.launch();
+        try {
+            // Copy each tab's live editor text into the sketch (and clear the
+            // console if that preference is on). Without this, Run used what was
+            // last saved to disk, so an unsaved sketch ran as an empty file.
+            prepareRun();
+            RunLog.log("Run pressed (present=" + present + ") sketch=" + sketch.getName()
+                + " folder=" + sketch.getFolder());
+            stopCurrentRunner();
+            statusEmpty();
+            runErrorShowing = false;
+            LuaRunner[] ref = {null};
+            LuaRunner thisRunner = new LuaRunner(sketch, luaMode.getFolder(), this,
+                problems -> SwingUtilities.invokeLater(() -> showRunProblems(problems)),
+                () -> onRunnerFinished(ref[0]));
+            ref[0] = thisRunner;
+            runner  = thisRunner;
+            try { getToolbar().activateRun(); } catch (Throwable ignored) {}
+            thisRunner.launch();
+        } catch (Throwable t) {
+            // whatever went wrong, the Run button must keep working
+            RunLog.log("startRunner failed", t);
+            runner = null;
+            deactivateRun();
+            statusError("Could not start the sketch: " + t);
+        }
     }
 
     private void onRunnerFinished(LuaRunner finished) {
-        if (runner == finished) runner = null;
+        // runs on the runner thread
+        SwingUtilities.invokeLater(() -> {
+            if (runner == finished) {
+                runner = null;
+                deactivateRun();
+            }
+        });
+    }
+
+    /** A run ended with an error: go to the tab and line, and say what happened. */
+    private void showRunProblems(List<LuaProblem> problems) {
+        if (problems.isEmpty()) return;
+        LuaProblem p = problems.stream().filter(LuaProblem::hasLocation).findFirst().orElse(problems.get(0));
+        try {
+            if (p.hasLocation() && p.getTabIndex() < sketch.getCodeCount()) {
+                if (sketch.getCurrentCodeIndex() != p.getTabIndex()) sketch.setCurrentCode(p.getTabIndex());
+                JEditTextArea ta = getTextArea();
+                int line = Math.min(p.getLineNumber(), ta.getLineCount() - 1);
+                if (line >= 0) {
+                    int start = ta.getLineStartOffset(line);
+                    int stop  = Math.max(start, ta.getLineStopOffset(line) - 1);
+                    ta.select(start, stop);
+                }
+            }
+        } catch (Throwable t) {
+            RunLog.log("couldn't highlight the error line", t);
+        }
+        runErrorShowing = true;
+        statusError(LuaRunner.formatProblem(p));
     }
 
     public void handleStop() {
+        boolean wasRunning = runner != null;
         stopCurrentRunner();
-        statusNotice("Stopped.");
+        deactivateRun();
+        if (wasRunning) statusNotice("Stopped."); else statusEmpty();
     }
 
     private void stopCurrentRunner() {
-        if (runner != null) { runner.halt(); runner = null; }
+        LuaRunner r = runner;
+        runner = null;
+        if (r != null) r.halt();
     }
 
     // ── Toolbar ───────────────────────────────────────────────────────────
@@ -231,7 +331,8 @@ public class LuaEditor extends Editor {
     @Override
     public void dispose() {
         stopCurrentRunner();
-        if (tokenMarker != null) { tokenMarker.dispose(); tokenMarker = null; }
+        for (TsLuaTokenMarker m : markers.values()) m.dispose();
+        markers.clear();
         super.dispose();
     }
 

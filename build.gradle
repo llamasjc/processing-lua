@@ -44,13 +44,13 @@ dependencies {
 test {
     useJUnitPlatform()
 
-    // Add the platform-specific native library directory to java.library.path
-    // so LuaLinterTest can load libtree-sitter-lua when the library is present.
-    // The test gracefully skips when the library is absent (CI without native libs).
-    def nativeDir = file("lib/${detectRunnerPlatform()}")
-    if (nativeDir.exists()) {
-        jvmArgs "-Djava.library.path=${nativeDir.absolutePath}"
-    }
+    // The parser tests need lib/<platform>/<native lib> (built by
+    // native/build.sh). They are skipped when it isn't there, unless
+    // LUAMODE_REQUIRE_NATIVE=1 (set in CI), which turns a skip into a failure
+    // so those tests can't silently stop running.
+    systemProperty 'luamode.native.dir', file("lib/${detectRunnerPlatform()}").absolutePath
+    systemProperty 'java.awt.headless', 'true'
+    testLogging { events 'failed', 'skipped' }
 }
 
 // ── Source / target ────────────────────────────────────────────────────────

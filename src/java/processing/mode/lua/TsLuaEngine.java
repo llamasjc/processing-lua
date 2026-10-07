@@ -50,8 +50,15 @@ public final class TsLuaEngine {
             Thread.currentThread().interrupt();
             return null;
         }
-        Tree tree = parser.parse(source);
-        return new ParseResult(source, tree, parser);
+        try {
+            Tree tree = parser.parse(source);
+            return new ParseResult(source, tree, parser);
+        } catch (Throwable t) {
+            // the parser has to go back whatever happens, or four failed
+            // parses later the pool is empty and highlighting stops for good
+            pool.offer(parser);
+            throw t;
+        }
     }
 
     // ── ParseResult ───────────────────────────────────────────────────────
@@ -68,8 +75,13 @@ public final class TsLuaEngine {
             this.parser = parser;
         }
 
+        private boolean closed;
+
         @Override
-        public void close() {
+        public synchronized void close() {
+            if (closed) return;
+            closed = true;
+            try { tree.close(); } catch (Throwable ignored) {}   // frees the native tree now, not at some later GC
             pool.offer(parser);
         }
     }

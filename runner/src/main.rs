@@ -24,242 +24,376 @@ use processing::App;
 use std::{
     env,
     fs,
+    io::Write,
     path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
 };
+
+const PRELUDE: &str = include_str!("prelude.lua");
 
 // ── Shared state threaded through setup/draw ──────────────────────────────
 
 struct RunnerState {
-    lua:    Lua,
-    /// Width/height last set by size() — read back after setup() to inform the App.
-    width:  u32,
-    height: u32,
+    lua:   Lua,
+    /// Name the sketch chunk was loaded under; error locations start with it.
+    chunk: String,
+}
 
-    // Previous-frame input state — used to detect transitions and fire
-    // Lua callbacks (mousePressed, mouseReleased, keyPressed, keyReleased).
-    // Processing fires these once per event, not every frame the button is held.
-    prev_mouse_pressed: bool,
-    prev_key_pressed:   bool,
-    prev_mouse_button:  i32,
-    prev_key_code:      i32,
+/// When the callback currently running was entered (ms since the epoch), or 0
+/// between callbacks. The instruction hook uses it to notice a stuck loop.
+static CALLBACK_STARTED: AtomicU64 = AtomicU64::new(0);
+const STUCK_AFTER_MS: u64 = 10_000;
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────
 
 fn main() {
+    // A bug in the runner or the engine should read as one, not as a wall of
+    // Rust backtrace, and must never be mistaken for an error in the sketch.
+    std::panic::set_hook(Box::new(|info| {
+        let msg = info.payload().downcast_ref::<&str>().map(|s| s.to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "unknown error".into());
+        let at = info.location().map(|l| format!(" ({}, line {})", l.file(), l.line())).unwrap_or_default();
+        eprintln!("luamode-runner internal error: {}{}", msg, at);
+        eprintln!("This is a bug in Lua Mode, not in your sketch.");
+        std::process::exit(70);
+    }));
+
+    // Started by the IDE: it keeps our stdin open and never writes to it.
+    // End of input therefore means the IDE is gone (crashed or was killed),
+    // and a sketch window nobody can stop any more should not stay behind.
+    if env::var_os("LUAMODE_WATCH_STDIN").is_some() {
+        let _ = std::thread::Builder::new().name("ide-watch".into()).spawn(|| {
+            use std::io::Read;
+            let mut buf = [0u8; 256];
+            let mut stdin = std::io::stdin();
+            loop {
+                match stdin.read(&mut buf) {
+                    Ok(0) => std::process::exit(0),
+                    Ok(_) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(_) => return,   // no usable stdin: nothing to watch
+                }
+            }
+        });
+    }
+
     let sketch_path: PathBuf = env::args()
         .nth(1)
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             eprintln!("usage: luamode-runner <sketch.lua>");
-            std::process::exit(1);
+            std::process::exit(2);
         });
 
-    let sketch_src = fs::read_to_string(&sketch_path).unwrap_or_else(|e| {
+    // Not read_to_string: one stray byte (a Latin-1 comment, say) shouldn't
+    // stop the sketch from running. Lua strings are bytes anyway.
+    let sketch_src = fs::read(&sketch_path).unwrap_or_else(|e| {
         eprintln!("{}: {}", sketch_path.display(), e);
-        std::process::exit(1);
+        std::process::exit(2);
+    });
+    // a UTF-8 byte order mark is a syntax error to Lua
+    let sketch_src = sketch_src.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&sketch_src);
+
+    // Errors read "<file name>:<line>: message". Only the file name, not the
+    // whole path: Lua cuts chunk names off at 60 characters, and temp paths on
+    // macOS and Windows are longer than that.
+    let chunk = sketch_path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "sketch.lua".into());
+
+    // unsafe_new only means "with the debug library" (the prelude needs it,
+    // and debug.traceback is handy in sketches). This runs the user's own code.
+    let lua = unsafe { Lua::unsafe_new() };
+
+    // A runaway loop that keeps allocating gets a Lua error instead of
+    // dragging the whole machine into swap. LUAMODE_MEMORY_MB overrides it.
+    let limit_mb = env::var("LUAMODE_MEMORY_MB").ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(2048);
+    if limit_mb > 0 {
+        let _ = lua.set_memory_limit(limit_mb.saturating_mul(1024 * 1024));
+    }
+
+    if let Err(e) = register_globals(&lua).and_then(|_| lua.load(PRELUDE).set_name("=luamode").exec()) {
+        eprintln!("luamode-runner internal error: {}", e);
+        std::process::exit(70);
+    }
+
+    // The window can't process events while Lua is running, so a sketch stuck
+    // in a loop looks frozen. Say so once instead of leaving people guessing.
+    lua.set_hook(mlua::HookTriggers::new().every_nth_instruction(1_000_000), |_, _| {
+        let started = CALLBACK_STARTED.load(Ordering::Relaxed);
+        if started != 0 && now_ms().saturating_sub(started) > STUCK_AFTER_MS {
+            CALLBACK_STARTED.store(0, Ordering::Relaxed);   // once per callback
+            eprintln!("The sketch has been busy for 10 seconds without finishing a frame. \
+                       If it's stuck in a loop, press Stop.");
+        }
+        Ok(())
     });
 
-    let path_str = sketch_path.to_string_lossy().into_owned();
+    // Run the sketch file: this defines setup/draw/the event functions (and
+    // runs any top-level code). The window opens afterwards.
+    if let Err(e) = lua.load(sketch_src).set_name(format!("@{}", chunk)).exec() {
+        fail(&e, &chunk);
+    }
 
-    let lua = Lua::new();
-    register_globals(&lua).unwrap_or_else(|e| {
-        eprintln!("{}", e);
-        std::process::exit(1);
-    });
+    let state = RunnerState { lua, chunk };
 
-    // Execute the sketch.  This registers the user's setup/draw/event functions
-    // as Lua globals but does not call them yet — the App builder does that.
-    // We set the chunk name to the sketch path so Lua error messages include it:
-    //   /tmp/processing_lua_XYZ.lua:12: attempt to index nil value
-    // LuaErrorMapper in Java strips the path and maps the line number back
-    // to the correct sketch tab.
-    lua.load(&sketch_src)
-        .set_name(&path_str)
-        .exec()
-        .unwrap_or_else(|e| {
-            eprintln!("{}", e);
-            std::process::exit(1);
-        });
-
-    let state = RunnerState {
-        lua,
-        width:  640,
-        height: 480,
-        prev_mouse_pressed: false,
-        prev_key_pressed:   false,
-        prev_mouse_button:  0,
-        prev_key_code:      0,
-    };
-
-    // App::new takes (state, setup_fn, draw_fn) matching the real libprocessing
-    // App builder API.  All event detection happens inside draw_fn by comparing
-    // previous vs current input state — see fire_input_callbacks() below.
-    App::new(state, setup_fn, draw_fn).run();
+    App::new(state, setup_fn, draw_fn)
+        .title("Lua sketch")
+        .mouse_pressed(|s| event(s, &["mousePressed"]))
+        .mouse_released(|s| event(s, &["mouseReleased", "mouseClicked"]))
+        .mouse_moved(|s| event(s, &["mouseMoved"]))
+        .mouse_dragged(|s| event(s, &["mouseDragged"]))
+        .mouse_wheel(|s, delta| {
+            sync_frame_globals(&s.lua);
+            call_with(s, "mouseWheel", delta as f64);
+        })
+        .key_pressed(|s| event(s, &["keyPressed"]))
+        .key_released(|s| event(s, &["keyReleased"]))
+        .key_typed(|s| event(s, &["keyTyped"]))
+        .run();
 }
 
 // ── App callbacks ─────────────────────────────────────────────────────────
 
 fn setup_fn(s: &mut RunnerState) {
-    let setup: Option<LuaFunction> = s.lua.globals().get("setup").ok().flatten();
-    if let Some(f) = setup {
-        if let Err(e) = f.call::<_, ()>(()) {
-            eprintln!("{}", e);
-        }
-    }
-    // After setup runs, size() may have updated width/height in Lua globals;
-    // sync them back into RunnerState so the App knows the window size.
-    s.width  = s.lua.globals().get("width").unwrap_or(640);
-    s.height = s.lua.globals().get("height").unwrap_or(480);
+    call_with(s, "setup", ());
 }
 
 fn draw_fn(s: &mut RunnerState) {
-    // 1. Sync globals so the sketch reads current values.
     sync_frame_globals(&s.lua);
-
-    // 2. Fire any input callbacks that became true since last frame.
-    //    This gives Processing-compatible behaviour: mousePressed() fires once
-    //    on the frame the button goes down, not every frame it's held.
-    fire_input_callbacks(s);
-
-    // 3. Call the user's draw().
-    call_lua_callback(&s.lua, "draw");
+    call_with(s, "draw", ());
 }
 
-// ── Input callback edge detection ─────────────────────────────────────────
+/// An input event from the engine: refresh the globals so mouseX, key, ...
+/// describe this event, then call the sketch's handlers if it defined them.
+fn event(s: &mut RunnerState, names: &[&str]) {
+    sync_frame_globals(&s.lua);
+    for name in names { call_with(s, name, ()); }
+}
+
+/// Calls a global function if the sketch defined one. `mousePressed` and
+/// `keyPressed` can also be plain booleans (see sync_frame_globals), so
+/// anything that isn't a function is simply not called.
+fn call_with<'lua, A: IntoLuaMulti<'lua>>(s: &'lua RunnerState, name: &str, args: A) {
+    let f = match s.lua.globals().raw_get::<_, LuaValue>(name) {
+        Ok(LuaValue::Function(f)) => f,
+        _ => return,
+    };
+    CALLBACK_STARTED.store(now_ms(), Ordering::Relaxed);
+    let result = f.call::<_, ()>(args);
+    CALLBACK_STARTED.store(0, Ordering::Relaxed);
+    if let Err(e) = result { fail(&e, &s.chunk); }
+}
+
+// ── Errors ────────────────────────────────────────────────────────────────
 //
-// libprocessing's App builder does not expose an event hook in its public API
-// (setup_fn + draw_fn only).  We detect transitions by comparing current
-// frame's input state against the previous frame's — exactly one callback
-// fires per edge, matching real Processing behaviour.
+// Like Processing, the first error stops the sketch. (Carrying on would print
+// the same error sixty times a second.) What goes to stderr is one line,
+//   <file>:<line>: message
+// which the IDE maps back to the right tab and line, then exit status 1.
 
-fn fire_input_callbacks(s: &mut RunnerState) {
-    let mouse_pressed  = processing::mouse_is_pressed();
-    let mouse_button   = processing::mouse_button() as i32;
-    let key_pressed    = processing::key_is_pressed();
-    let key_code       = processing::key_code() as i32;
+fn fail(e: &LuaError, chunk: &str) -> ! {
+    let _ = std::io::stdout().flush();
+    eprintln!("{}", describe(e, chunk));
+    std::process::exit(1);
+}
 
-    // Mouse button down
-    if mouse_pressed && !s.prev_mouse_pressed {
-        call_lua_callback(&s.lua, "mousePressed");
-    }
-    // Mouse button up
-    if !mouse_pressed && s.prev_mouse_pressed {
-        call_lua_callback(&s.lua, "mouseReleased");
-        // mouseClicked fires on the same frame as release
-        call_lua_callback(&s.lua, "mouseClicked");
-    }
-
-    // Mouse moved / dragged — we track by comparing mouse position globals.
-    // sync_frame_globals already set mouseX/mouseY and pmouseX/pmouseY.
-    let mx:  f32 = s.lua.globals().get("mouseX").unwrap_or(0.0);
-    let my:  f32 = s.lua.globals().get("mouseY").unwrap_or(0.0);
-    let pmx: f32 = s.lua.globals().get("pmouseX").unwrap_or(0.0);
-    let pmy: f32 = s.lua.globals().get("pmouseY").unwrap_or(0.0);
-    if mx != pmx || my != pmy {
-        if mouse_pressed {
-            call_lua_callback(&s.lua, "mouseDragged");
-        } else {
-            call_lua_callback(&s.lua, "mouseMoved");
+fn describe(e: &LuaError, chunk: &str) -> String {
+    // Unwrap to the innermost cause, keeping the first traceback seen: that
+    // one is closest to where the sketch was when things went wrong.
+    let mut cur = e;
+    let mut traceback = String::new();
+    loop {
+        match cur {
+            LuaError::CallbackError { traceback: tb, cause } => {
+                if traceback.is_empty() { traceback = tb.clone(); }
+                cur = cause;
+            }
+            LuaError::WithContext { cause, .. } => cur = cause,
+            _ => break,
         }
     }
 
-    // Key down (new key or same key held is one event per physical press)
-    if key_pressed && (!s.prev_key_pressed || key_code != s.prev_key_code) {
-        call_lua_callback(&s.lua, "keyPressed");
-    }
-    // Key up
-    if !key_pressed && s.prev_key_pressed {
-        call_lua_callback(&s.lua, "keyReleased");
-        call_lua_callback(&s.lua, "keyTyped");
-    }
-
-    // Save state for next frame.
-    s.prev_mouse_pressed = mouse_pressed;
-    s.prev_mouse_button  = mouse_button;
-    s.prev_key_pressed   = key_pressed;
-    s.prev_key_code      = key_code;
-}
-
-fn call_lua_callback(lua: &Lua, name: &str) {
-    let f: Option<LuaFunction> = lua.globals().get(name).ok().flatten();
-    if let Some(f) = f {
-        if let Err(e) = f.call::<_, ()>(()) {
-            eprintln!("{}", e);
+    let mut msg = match cur {
+        LuaError::RuntimeError(m) | LuaError::MemoryError(m) => m.clone(),
+        LuaError::SyntaxError { message, .. } => message.clone(),
+        LuaError::BadArgument { pos, cause, .. } => {
+            let what = match &**cause {
+                // 2.5 or 1e30 where an integer constant belongs
+                LuaError::FromLuaConversionError { from, to, .. }
+                    if (*from == "number" || *from == "integer") && friendly_type(to) == "a whole number" =>
+                    "expected a whole number".to_string(),
+                LuaError::FromLuaConversionError { from, to, .. } =>
+                    format!("expected {}, got {}", friendly_type(to), from),
+                other => other.to_string(),
+            };
+            match called_function(&traceback) {
+                Some(f) => format!("bad argument #{} to {}(): {}", pos, f, what),
+                None    => format!("bad argument #{}: {}", pos, what),
+            }
         }
+        other => other.to_string(),
+    };
+    if let Some(i) = msg.find("\nstack traceback:") {
+        if traceback.is_empty() { traceback = msg[i..].to_string(); }
+        msg.truncate(i);
+    }
+    let msg = msg.trim();
+
+    let prefix = format!("{}:", chunk);
+    if msg.starts_with(&prefix) {
+        return msg.to_string();
+    }
+    // No location on the message itself (it came from one of our functions,
+    // or from error() with a non-string): take the sketch line from the traceback.
+    match sketch_line(&traceback, &prefix) {
+        Some(line) => format!("{}{}: {}", prefix, line, msg),
+        None       => msg.to_string(),
     }
 }
 
-/// Copies libprocessing's current frame state into Lua globals.
-/// Called at the top of every draw frame, before the user's draw().
+/// First "<chunk>:<digits>:" in a traceback.
+fn sketch_line(traceback: &str, prefix: &str) -> Option<u32> {
+    let mut rest = traceback;
+    while let Some(i) = rest.find(prefix) {
+        let after = &rest[i + prefix.len()..];
+        let digits: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if !digits.is_empty() && after[digits.len()..].starts_with(':') {
+            return digits.parse().ok();
+        }
+        rest = after;
+    }
+    None
+}
+
+/// The traceback of an error raised inside one of our functions starts with
+/// "[C]: in function 'ellipse'".
+fn called_function(traceback: &str) -> Option<String> {
+    let line = traceback.lines().find(|l| l.trim_start().starts_with("[C]: in "))?;
+    let start = line.find('\'')? + 1;
+    let end = start + line[start..].find('\'')?;
+    let name = &line[start..end];
+    // Lua 5.4 may say "global 'ellipse'" style names with a prefix; keep the last word
+    Some(name.rsplit(|c| c == '.' || c == ' ').next().unwrap_or(name).to_string())
+}
+
+fn friendly_type(rust: &str) -> &str {
+    match rust {
+        "f32" | "f64" => "a number",
+        "i32" | "i64" | "u32" | "u64" | "usize" => "a whole number",
+        "String" | "string" => "a string",
+        "bool" => "true or false",
+        other => other,
+    }
+}
+
+/// Copies the engine's current input and frame state into Lua globals.
+/// Called before draw() and before every event callback.
 fn sync_frame_globals(lua: &Lua) {
     let g = lua.globals();
-    let _ = g.set("mouseX",       processing::mouse_x());
-    let _ = g.set("mouseY",       processing::mouse_y());
-    let _ = g.set("pmouseX",      processing::pmouse_x());
-    let _ = g.set("pmouseY",      processing::pmouse_y());
+    // whole pixels, like Processing (and so print(mouseX) says 120, not 120.0)
+    let _ = g.raw_set("mouseX",  processing::mouse_x().round() as i64);
+    let _ = g.raw_set("mouseY",  processing::mouse_y().round() as i64);
+    let _ = g.raw_set("pmouseX", processing::pmouse_x().round() as i64);
+    let _ = g.raw_set("pmouseY", processing::pmouse_y().round() as i64);
     // mousePressed / keyPressed are also the names of the event callbacks.
     // Lua can't hold both, so the state lives in mouseIsPressed / keyIsPressed
     // (like p5.js), and the old names are only set when the sketch hasn't
     // defined a function with that name.
     let mp = processing::mouse_is_pressed();
     let kp = processing::key_is_pressed();
-    let _ = g.set("mouseIsPressed", mp);
-    let _ = g.set("keyIsPressed",   kp);
-    if !matches!(g.get::<_, LuaValue>("mousePressed"), Ok(LuaValue::Function(_))) {
-        let _ = g.set("mousePressed", mp);
+    let _ = g.raw_set("mouseIsPressed", mp);
+    let _ = g.raw_set("keyIsPressed",   kp);
+    if !matches!(g.raw_get::<_, LuaValue>("mousePressed"), Ok(LuaValue::Function(_))) {
+        let _ = g.raw_set("mousePressed", mp);
     }
-    let _ = g.set("mouseButton",  processing::mouse_button() as i32);
-    if !matches!(g.get::<_, LuaValue>("keyPressed"), Ok(LuaValue::Function(_))) {
-        let _ = g.set("keyPressed", kp);
+    if !matches!(g.raw_get::<_, LuaValue>("keyPressed"), Ok(LuaValue::Function(_))) {
+        let _ = g.raw_set("keyPressed", kp);
     }
-    let _ = g.set("key",          processing::key_char().to_string());
-    let _ = g.set("keyCode",      processing::key_code() as i32);
-    let _ = g.set("frameCount",   processing::frame_count());
-    let _ = g.set("frameRate",    processing::frame_rate());
-    let _ = g.set("width",        processing::width());
-    let _ = g.set("height",       processing::height());
+    let _ = g.raw_set("mouseButton", processing::mouse_button());
+    // arrows, modifiers and the like have no character: key is CODED and the
+    // sketch looks at keyCode
+    if processing::key_is_coded() {
+        let _ = g.raw_set("key", CODED);
+    } else {
+        let k = processing::key_char();
+        let _ = g.raw_set("key", if k == '\0' { String::new() } else { k.to_string() });
+    }
+    let _ = g.raw_set("keyCode",    processing::key_code() as i64);
+    let _ = g.raw_set("frameCount", processing::frame_count() as i64);
+    let _ = g.raw_set("frameRate",  processing::frame_rate() as f64);
+    let (w, h) = (processing::width() as i64, processing::height() as i64);
+    if w > 0 && h > 0 {
+        let _ = g.raw_set("width",  w);
+        let _ = g.raw_set("height", h);
+    }
+}
+
+const CODED: i64 = 0xFFFF;
+
+/// A Lua number argument as f64, with a readable complaint otherwise.
+fn num(v: &LuaValue, what: &str) -> LuaResult<f64> {
+    match v {
+        LuaValue::Number(n)  => Ok(*n),
+        LuaValue::Integer(n) => Ok(*n as f64),
+        LuaValue::String(s)  => s.to_str().ok().and_then(|t| t.trim().parse::<f64>().ok())
+            .ok_or_else(|| LuaError::RuntimeError(format!("{} expects a number, got a string", what))),
+        other => Err(LuaError::RuntimeError(format!("{} expects a number, got {}", what, other.type_name()))),
+    }
 }
 
 // ── Global registration ───────────────────────────────────────────────────
 //
-// Every Processing API function and constant that `processing.lua` (the Lua
-// library) delegates to its backend is registered here as a Lua global.
-// The Lua library calls `Backend.ellipse(x,y,w,h)` etc.; the runner backend
-// is the globals table itself, so `ellipse(x,y,w,h)` calls straight through.
-//
-// Naming follows the Processing API exactly (lowercase, camelCase as needed).
+// Every Processing function and constant is a Lua global, named as in the
+// Processing reference. The math helpers live in prelude.lua.
 
 fn register_globals(lua: &Lua) -> LuaResult<()> {
     let g = lua.globals();
 
     // ── size / dimensions ─────────────────────────────────────────────────
-    // size() is intercepted during setup to configure the window.
-    // After setup the width/height globals are set by the App.
-    // We register a stub here; LuaBuild's generated header overrides it.
-    g.set("size", lua.create_function(|lua, (w, h): (u32, u32)| {
+    g.set("size", lua.create_function(|lua, (w, h): (LuaValue, LuaValue)| {
+        let dim = |v: &LuaValue| -> LuaResult<u32> {
+            let n = num(v, "size()")?;
+            if !n.is_finite() || n < 1.0 {
+                return Err(LuaError::RuntimeError("size() needs a width and height of at least 1".into()));
+            }
+            Ok((n.round() as u32).min(8192))
+        };
+        let (w, h) = (dim(&w)?, dim(&h)?);
         processing::size(w, h);
-        lua.globals().set("width",  w)?;
-        lua.globals().set("height", h)?;
+        lua.globals().raw_set("width",  w)?;
+        lua.globals().raw_set("height", h)?;
         Ok(())
     })?)?;
 
-    g.set("width",  640_u32)?;
-    g.set("height", 480_u32)?;
+    g.set("width",  100_i64)?;
+    g.set("height", 100_i64)?;
+    processing::size(100, 100);   // Processing's default when size() is never called
+    // text(s, x, y) puts the baseline at y unless textAlign() says otherwise
+    processing::text_align(processing::LEFT, processing::BASELINE);
 
-    // ── Frame state (updated each draw by the App) ────────────────────────
-    g.set("frameCount",    0_u32)?;
-    g.set("frameRate",     60_f32)?;
-    g.set("mouseX",        0_f32)?;
-    g.set("mouseY",        0_f32)?;
-    g.set("pmouseX",       0_f32)?;
-    g.set("pmouseY",       0_f32)?;
+    // ── Frame state (refreshed before draw() and every event) ─────────────
+    g.set("frameCount",    0_i64)?;
+    g.set("frameRate",     60_f64)?;
+    g.set("mouseX",        0_i64)?;
+    g.set("mouseY",        0_i64)?;
+    g.set("pmouseX",       0_i64)?;
+    g.set("pmouseY",       0_i64)?;
     g.set("mousePressed",   false)?;
     g.set("keyPressed",     false)?;
     g.set("mouseIsPressed", false)?;
     g.set("keyIsPressed",   false)?;
+    g.set("mouseButton",   0_i64)?;
     g.set("key",           "")?;
-    g.set("keyCode",       0_i32)?;
+    g.set("keyCode",       0_i64)?;
 
     // ── Constants ─────────────────────────────────────────────────────────
     use std::f32::consts::PI;
@@ -268,14 +402,21 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     g.set("HALF_PI",  PI / 2.0)?;
     g.set("TAU",      PI * 2.0)?;
     g.set("QUARTER_PI", PI / 4.0)?;
-    // Alignment / modes
-    g.set("LEFT",    0_i32)?;
-    g.set("RIGHT",   1_i32)?;
-    g.set("CENTER",  2_i32)?;
-    g.set("TOP",     3_i32)?;
-    g.set("BOTTOM",  4_i32)?;
+    // LEFT / RIGHT / CENTER carry Processing's values because each does three
+    // jobs: key code, mouse button and alignment.
+    g.set("LEFT",     processing::LEFT)?;
+    g.set("RIGHT",    processing::RIGHT)?;
+    g.set("CENTER",   processing::CENTER)?;
+    g.set("TOP",      processing::TOP)?;
+    g.set("BOTTOM",   processing::BOTTOM)?;
+    g.set("BASELINE", processing::BASELINE)?;
+    g.set("CORNER",   processing::CORNER)?;
+    g.set("CORNERS",  processing::CORNERS)?;
+    g.set("RADIUS",   processing::RADIUS)?;
     g.set("OPEN",    0_i32)?;
     g.set("CLOSE",   1_i32)?;
+    g.set("PIE",     0_i32)?;
+    g.set("CHORD",   0_i32)?;
     // Color modes
     g.set("RGB",     1_i32)?;
     g.set("HSB",     3_i32)?;
@@ -283,6 +424,7 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     g.set("POINTS",       0_i32)?;
     g.set("LINES",        1_i32)?;
     g.set("TRIANGLES",    4_i32)?;
+    g.set("TRIANGLE_STRIP", 5_i32)?;
     g.set("TRIANGLE_FAN", 6_i32)?;
     g.set("QUADS",        7_i32)?;
     g.set("QUAD_STRIP",   8_i32)?;
@@ -300,15 +442,13 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     g.set("RETURN",    13_i32)?;
     g.set("ESC",       27_i32)?;
     g.set("DELETE",    127_i32)?;
-    g.set("CODED",     0xFFFF_i32)?;
+    g.set("CODED",     CODED)?;
     g.set("UP",        38_i32)?;
     g.set("DOWN",      40_i32)?;
     g.set("SHIFT",     16_i32)?;
     g.set("CONTROL",   17_i32)?;
     g.set("ALT",       18_i32)?;
-    // Mouse buttons
     g.set("NONE",    0_i32)?;
-    // LEFT already set above
 
     // ── Background / color ────────────────────────────────────────────────
     g.set("background", lua.create_function(|_, args: LuaMultiValue| {
@@ -373,9 +513,20 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     })?)?;
 
     // ── Shapes ────────────────────────────────────────────────────────────
-    g.set("rect", lua.create_function(|_, (x,y,w,h): (f32,f32,f32,f32)| {
-        processing::rect(x,y,w,h); Ok(())
+    g.set("rect", lua.create_function(|_, (x,y,w,h,r): (f32,f32,f32,f32,Option<f32>)| {
+        match r {
+            Some(r) if r > 0.0 => processing::rect_rounded(x,y,w,h,r),
+            _                  => processing::rect(x,y,w,h),
+        }
+        Ok(())
     })?)?;
+
+    g.set("square", lua.create_function(|_, (x,y,s): (f32,f32,f32)| {
+        processing::rect(x,y,s,s); Ok(())
+    })?)?;
+
+    g.set("rectMode", lua.create_function(|_, m: i32| { processing::rect_mode(m); Ok(()) })?)?;
+    g.set("ellipseMode", lua.create_function(|_, m: i32| { processing::ellipse_mode(m); Ok(()) })?)?;
 
     g.set("ellipse", lua.create_function(|_, (x,y,w,h): (f32,f32,f32,f32)| {
         processing::ellipse(x,y,w,h); Ok(())
@@ -430,14 +581,18 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         processing::bezier_vertex(cx1,cy1,cx2,cy2,x,y); Ok(())
     })?)?;
 
+    g.set("quadraticVertex", lua.create_function(|_, (cx,cy,x,y): (f32,f32,f32,f32)| {
+        processing::quadratic_vertex(cx,cy,x,y); Ok(())
+    })?)?;
+
     g.set("curveVertex", lua.create_function(|_, (x,y): (f32,f32)| {
         processing::curve_vertex(x,y); Ok(())
     })?)?;
 
     // ── Transform ─────────────────────────────────────────────────────────
-    g.set("push", lua.create_function(|_, ()| { processing::push_matrix(); Ok(()) })?)?;
-    g.set("pop",  lua.create_function(|_, ()| { processing::pop_matrix();  Ok(()) })?)?;
-    // Aliases for the longer names
+    // push() / pop() save and restore both the transform and the style, as in p5.js
+    g.set("push", lua.create_function(|_, ()| { processing::push_matrix(); processing::push_style(); Ok(()) })?)?;
+    g.set("pop",  lua.create_function(|_, ()| { processing::pop_style(); processing::pop_matrix(); Ok(()) })?)?;
     g.set("pushMatrix", lua.create_function(|_, ()| { processing::push_matrix(); Ok(()) })?)?;
     g.set("popMatrix",  lua.create_function(|_, ()| { processing::pop_matrix();  Ok(()) })?)?;
     g.set("pushStyle",  lua.create_function(|_, ()| { processing::push_style();  Ok(()) })?)?;
@@ -456,8 +611,9 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
             .filter_map(|v| v.to_num())
             .collect();
         match vals.len() {
+            0 => return Err(LuaError::RuntimeError("scale() expects one or two numbers".into())),
             1 => processing::scale_uniform(vals[0]),
-            _ => processing::scale(vals[0], *vals.get(1).unwrap_or(&vals[0])),
+            _ => processing::scale(vals[0], vals[1]),
         }
         Ok(())
     })?)?;
@@ -467,7 +623,13 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     })?)?;
 
     // ── Text ──────────────────────────────────────────────────────────────
-    g.set("text", lua.create_function(|_, (s, x, y): (String, f32, f32)| {
+    // text(anything, x, y): numbers, booleans and nil are shown the way
+    // print() would show them
+    g.set("text", lua.create_function(|lua, (v, x, y): (LuaValue, f32, f32)| {
+        let s = match &v {
+            LuaValue::String(s) => s.to_string_lossy().into_owned(),
+            other => lua.globals().get::<_, LuaFunction>("tostring")?.call::<_, String>(other.clone())?,
+        };
         processing::text(&s, x, y); Ok(())
     })?)?;
 
@@ -476,11 +638,11 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     })?)?;
 
     g.set("textAlign", lua.create_function(|_, (h, v): (i32, Option<i32>)| {
-        processing::text_align(h, v.unwrap_or(3)); Ok(())
+        processing::text_align(h, v.unwrap_or(processing::BASELINE)); Ok(())
     })?)?;
 
-    g.set("textWidth", lua.create_function(|_, s: String| {
-        Ok(processing::text_width(&s))
+    g.set("textWidth", lua.create_function(|_, s: LuaString| {
+        Ok(processing::text_width(&s.to_string_lossy()))
     })?)?;
 
     g.set("textAscent", lua.create_function(|_, ()| {
@@ -492,59 +654,17 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     })?)?;
 
     // ── Math ──────────────────────────────────────────────────────────────
-    g.set("map", lua.create_function(|_, (v,a1,b1,a2,b2): (f32,f32,f32,f32,f32)| {
-        Ok(a2 + (v - a1) / (b1 - a1) * (b2 - a2))
-    })?)?;
-
-    g.set("lerp", lua.create_function(|_, (a,b,t): (f32,f32,f32)| {
-        Ok(a + (b - a) * t)
-    })?)?;
-
-    g.set("constrain", lua.create_function(|_, (v,lo,hi): (f32,f32,f32)| {
-        Ok(v.clamp(lo, hi))
-    })?)?;
-
-    g.set("dist", lua.create_function(|_, (x1,y1,x2,y2): (f32,f32,f32,f32)| {
-        Ok(((x2-x1).powi(2) + (y2-y1).powi(2)).sqrt())
-    })?)?;
-
-    g.set("mag", lua.create_function(|_, (x,y): (f32,f32)| {
-        Ok((x*x + y*y).sqrt())
-    })?)?;
-
-    g.set("abs",   lua.create_function(|_, v: f32| Ok(v.abs()))?)?;
-    g.set("floor", lua.create_function(|_, v: f32| Ok(v.floor()))?)?;
-    g.set("ceil",  lua.create_function(|_, v: f32| Ok(v.ceil()))?)?;
-    g.set("round", lua.create_function(|_, v: f32| Ok(v.round()))?)?;
-    g.set("sqrt",  lua.create_function(|_, v: f32| Ok(v.sqrt()))?)?;
-    g.set("sq",    lua.create_function(|_, v: f32| Ok(v * v))?)?;
-    g.set("pow",   lua.create_function(|_, (b,e): (f32,f32)| Ok(b.powf(e)))?)?;
-    g.set("log",   lua.create_function(|_, v: f32| Ok(v.ln()))?)?;
-    g.set("exp",   lua.create_function(|_, v: f32| Ok(v.exp()))?)?;
-    g.set("sin",   lua.create_function(|_, v: f32| Ok(v.sin()))?)?;
-    g.set("cos",   lua.create_function(|_, v: f32| Ok(v.cos()))?)?;
-    g.set("tan",   lua.create_function(|_, v: f32| Ok(v.tan()))?)?;
-    g.set("asin",  lua.create_function(|_, v: f32| Ok(v.asin()))?)?;
-    g.set("acos",  lua.create_function(|_, v: f32| Ok(v.acos()))?)?;
-    g.set("atan",  lua.create_function(|_, v: f32| Ok(v.atan()))?)?;
-    g.set("atan2", lua.create_function(|_, (y,x): (f32,f32)| Ok(y.atan2(x)))?)?;
-    g.set("degrees", lua.create_function(|_, v: f32| Ok(v.to_degrees()))?)?;
-    g.set("radians", lua.create_function(|_, v: f32| Ok(v.to_radians()))?)?;
-    g.set("min",   lua.create_function(|_, (a,b): (f32,f32)| Ok(a.min(b)))?)?;
-    g.set("max",   lua.create_function(|_, (a,b): (f32,f32)| Ok(a.max(b)))?)?;
+    // map, lerp, constrain, sin, floor, ... are defined in prelude.lua.
 
     // noise / random
     g.set("noise", lua.create_function(|_, args: LuaMultiValue| {
         let vals: Vec<f32> = args.iter().filter_map(|v| v.to_num()).collect();
-        Ok(match vals.len() {
-            1 => processing::noise1(vals[0]),
-            2 => processing::noise2(vals[0], vals[1]),
-            _ => processing::noise3(vals[0], vals[1], *vals.get(2).unwrap_or(&0.0)),
-        })
+        let at = |i: usize| vals.get(i).copied().unwrap_or(0.0);
+        Ok(processing::noise3(at(0), at(1), at(2)) as f64)
     })?)?;
 
-    g.set("noiseSeed", lua.create_function(|_, seed: u64| {
-        processing::noise_seed(seed); Ok(())
+    g.set("noiseSeed", lua.create_function(|_, seed: LuaValue| {
+        processing::noise_seed(num(&seed, "noiseSeed()")? as i64 as u64); Ok(())
     })?)?;
 
     g.set("noiseDetail", lua.create_function(|_, (oct, fall): (i32, Option<f32>)| {
@@ -560,8 +680,8 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         })
     })?)?;
 
-    g.set("randomSeed", lua.create_function(|_, seed: u64| {
-        processing::random_seed(seed); Ok(())
+    g.set("randomSeed", lua.create_function(|_, seed: LuaValue| {
+        processing::random_seed(num(&seed, "randomSeed()")? as i64 as u64); Ok(())
     })?)?;
 
     g.set("randomGaussian", lua.create_function(|_, ()| {
@@ -580,20 +700,28 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         processing::redraw(); Ok(())
     })?)?;
 
-    g.set("delay", lua.create_function(|_, ms: u64| {
-        std::thread::sleep(std::time::Duration::from_millis(ms)); Ok(())
+    g.set("delay", lua.create_function(|_, ms: LuaValue| {
+        let ms = num(&ms, "delay()")?;
+        if ms.is_finite() && ms > 0.0 {
+            std::thread::sleep(std::time::Duration::from_millis(ms.min(60_000.0) as u64));
+        }
+        Ok(())
     })?)?;
 
-    // frameRate(n) — set the target frame rate.
-    // Note: `frameRate` is also a number global (current fps, updated each draw).
-    // Because Lua can't overload the same name as both a number and a function,
-    // we provide `setFrameRate(n)` for setting it and keep `frameRate` as a
-    // read-only number.  Calling `frameRate(n)` directly also works and overrides
-    // the global, but reads of `frameRate` will then return the function object
-    // until the next sync.  Prefer `setFrameRate`.
-    g.set("setFrameRate", lua.create_function(|_, fps: f32| {
-        processing::set_frame_rate(fps); Ok(())
+    // frameRate(n) sets the target; the frameRate global reads the current
+    // rate. prelude.lua wires the two together through this function, which
+    // returns the rate the engine settled on. setFrameRate(n) does the same.
+    let set_rate = lua.create_function(|_, fps: f32| Ok(processing::set_frame_rate(fps) as f64))?;
+    g.set("__luamode_set_frame_rate", set_rate)?;
+    g.set("setFrameRate", lua.create_function(|lua, fps: f32| {
+        lua.globals().raw_set("frameRate", processing::set_frame_rate(fps) as f64)
     })?)?;
+
+    g.set("windowTitle", lua.create_function(|_, t: LuaString| {
+        processing::window_title(&t.to_string_lossy()); Ok(())
+    })?)?;
+    g.set("smooth",   lua.create_function(|_, ()| { processing::smooth(true);  Ok(()) })?)?;
+    g.set("noSmooth", lua.create_function(|_, ()| { processing::smooth(false); Ok(()) })?)?;
 
     // cursor / noCursor
     g.set("cursor", lua.create_function(|_, ()| {
@@ -609,35 +737,33 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         processing::exit(); Ok(())
     })?)?;
 
-    // println / print — route through Processing's console so output appears
-    // in the IDE console pane rather than the raw terminal.  The Lua builtins
-    // (io.write, print) still work but go to stdout.
-    // Lua's own print() goes through C stdio, which is fully buffered when
+    // print: Lua's own goes through C stdio, which is fully buffered when
     // stdout is a pipe (as it is under the IDE), so output would show up in
     // chunks or only at exit. Same formatting as Lua's print (tostring on each
     // argument, tab-separated), but written and flushed a line at a time.
+    // println is an alias (see prelude.lua).
     g.set("print", lua.create_function(|lua, args: LuaMultiValue| {
         let tostring: LuaFunction = lua.globals().get("tostring")?;
-        let mut parts = Vec::with_capacity(args.len());
-        for v in args {
-            parts.push(tostring.call::<_, String>(v)?);
+        let mut line: Vec<u8> = Vec::new();
+        for (i, v) in args.into_iter().enumerate() {
+            if i > 0 { line.push(b'\t'); }
+            // bytes, not String: a Lua string doesn't have to be valid UTF-8
+            line.extend_from_slice(tostring.call::<_, LuaString>(v)?.as_bytes());
         }
-        use std::io::Write;
+        line.push(b'\n');
         let mut out = std::io::stdout().lock();
-        let _ = writeln!(out, "{}", parts.join("\t"));
-        let _ = out.flush();
+        if out.write_all(&line).and_then(|_| out.flush()).is_err() {
+            // Nobody is reading any more: the IDE that started us is gone.
+            std::process::exit(0);
+        }
         Ok(())
-    })?)?;
-
-    g.set("println", lua.create_function(|_, s: Option<String>| {
-        processing::println(&s.unwrap_or_default()); Ok(())
     })?)?;
 
     // ── Image ─────────────────────────────────────────────────────────────
     // Images are opaque handles (u64 IDs returned by processing::load_image).
     // We store them as Lua integers.
-    g.set("loadImage", lua.create_function(|_, path: String| {
-        Ok(processing::load_image(&path) as i64)
+    g.set("loadImage", lua.create_function(|_, path: LuaString| {
+        Ok(processing::load_image(&path.to_string_lossy()) as i64)
     })?)?;
 
     g.set("image", lua.create_function(|_, (id, x, y, w, h): (i64, f32, f32, Option<f32>, Option<f32>)| {
@@ -654,6 +780,12 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     })?)?;
 
     g.set("noTint", lua.create_function(|_, ()| { processing::no_tint(); Ok(()) })?)?;
+
+    // get(x, y) returns the pixel's red, green and blue (0..255)
+    g.set("get", lua.create_function(|_, (x, y): (f64, f64)| {
+        let (r, g, b) = processing::get_pixel(x.floor() as i32, y.floor() as i32);
+        Ok((r as i64, g as i64, b as i64))
+    })?)?;
 
     g.set("saveFrame", lua.create_function(|_, name: Option<String>| {
         processing::save_frame(&name.unwrap_or_else(|| "screen-####.png".into())); Ok(())

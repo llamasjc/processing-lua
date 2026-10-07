@@ -78,63 +78,97 @@ public class LuaLinter {
      */
     public List<LuaProblem> lint(String source, Node root, int[] tabStartLines) {
         List<LuaProblem> problems = new ArrayList<>();
-        walkTree(root, source, tabStartLines, problems);
-        scanOperatorMistakes(source, tabStartLines, problems);
-        scanApiHints(source, tabStartLines, problems);
+        // Comments and strings are blanked out (using the parse tree, so block
+        // comments and long strings are covered too) before the text checks
+        // run. Otherwise the "!" in a comment gets a warning about 'not'.
+        StringBuilder masked = new StringBuilder(source);
+        walkTree(root, source, tabStartLines, problems, masked);
+        String text = masked.toString();
+        scanOperatorMistakes(text, tabStartLines, problems);
+        scanApiHints(text, tabStartLines, problems);
         return problems;
     }
 
     // ── Tree walk ─────────────────────────────────────────────────────────────
     //
-    // Single recursive pass: checks every node for the two categories above.
-    // Lua tree-sitter node types:
-    //   ERROR        — tree-sitter error recovery node
-    //   MISSING      — tree-sitter synthesised absent token
-    //   function_call — a call expression; first child is the callee expression
+    // One pass over the tree, with an explicit stack instead of recursion:
+    // a long chain like a .. b .. c .. (thousands of terms) nests that deep,
+    // and recursing into it overflows the Java stack.
+    //
+    // Node types of the Lua grammar used here:
+    //   ERROR            tree-sitter error recovery node
+    //   call             a call; first child is the callee
+    //     variable       wraps a single identifier for a plain name like draw
+    //     argument_list
+    //   comment, string
 
-    private void walkTree(Node node, String source, int[] tabStartLines,
-                          List<LuaProblem> out) {
+    private void walkTree(Node root, String source, int[] tabStartLines,
+                          List<LuaProblem> out, StringBuilder masked) {
+        java.util.ArrayDeque<Node> stack = new java.util.ArrayDeque<>();
+        stack.push(root);
+        int visited = 0;
+        while (!stack.isEmpty()) {
+            Node node = stack.pop();
+            if (++visited > MAX_NODES) return;          // a huge paste: lint what we got to
+            String type = node.getType();
+            if (type == null) continue;
 
-        String type = node.getType();
+            if ("comment".equals(type) || "string".equals(type)) {
+                blank(masked, node.getStartByte(), node.getEndByte());
+                continue;                               // nothing to check inside
+            }
 
-        // 1. Syntax error nodes
-        if ("ERROR".equals(type)) {
-            int line = node.getStartPoint().getRow();
-            out.add(makeAt(line, "Syntax error", tabStartLines, LuaProblem.Severity.ERROR));
-            // Still recurse — error nodes can have valid children worth checking.
-        } else if (node.getType() != null && node.getType().startsWith("MISSING")) {
-            int line = node.getStartPoint().getRow();
-            out.add(makeAt(line, "Missing '" + type + "'", tabStartLines, LuaProblem.Severity.ERROR));
+            // 1. Syntax errors
+            if (out.size() < MAX_PROBLEMS) {
+                if (node.isMissing()) {
+                    out.add(makeAt(node.getStartPoint().getRow(), "Missing '" + type + "'",
+                        tabStartLines, LuaProblem.Severity.ERROR));
+                } else if ("ERROR".equals(type)) {
+                    out.add(makeAt(node.getStartPoint().getRow(), "Syntax error",
+                        tabStartLines, LuaProblem.Severity.ERROR));
+                    // keep going: error nodes can have valid children worth checking
+                } else if ("call".equals(type)) {
+                    // 2. Explicit setup()/draw() calls
+                    checkFrameworkCall(node, source, tabStartLines, out);
+                }
+            }
+
+            // children pushed last-first so they are visited in source order
+            for (int i = node.getChildCount() - 1; i >= 0; i--) {
+                Node child = node.getChild(i);
+                if (child != null) stack.push(child);
+            }
         }
+    }
 
-        // 2. Explicit setup()/draw() calls
-        if ("function_call".equals(type)) {
-            checkFrameworkCall(node, source, tabStartLines, out);
-        }
+    private static final int MAX_NODES    = 400_000;
+    private static final int MAX_PROBLEMS = 200;
 
-        // Recurse into children
-        for (int i = 0; i < node.getChildCount(); i++) {
-            walkTree(node.getChild(i), source, tabStartLines, out);
+    /** Overwrite [start, end) with spaces, keeping line breaks so line numbers still match. */
+    private static void blank(StringBuilder sb, int start, int end) {
+        start = Math.max(0, start);
+        end   = Math.min(sb.length(), end);
+        for (int i = start; i < end; i++) {
+            if (sb.charAt(i) != '\n') sb.setCharAt(i, ' ');
         }
     }
 
     /**
-     * If this function_call node calls a framework-managed function (setup, draw),
-     * emit a warning.
-     *
-     * Lua tree-sitter grammar shape for a simple call:
-     *   function_call
-     *     identifier  ← the callee
-     *     arguments
-     *       arg_list
-     *
-     * We check only the first child; method calls (obj:method()) won't match.
+     * If this call node calls a framework-managed function (setup, draw, ...)
+     * by its plain name, emit a warning. obj.draw() and obj:draw() are someone
+     * else's functions and are left alone.
      */
     private void checkFrameworkCall(Node callNode, String source, int[] tabStartLines,
                                     List<LuaProblem> out) {
         if (callNode.getChildCount() == 0) return;
 
         Node callee = callNode.getChild(0);
+        if (callee == null) return;
+        if ("variable".equals(callee.getType())) {
+            if (callee.getChildCount() != 1) return;    // a.b or a[b]
+            callee = callee.getChild(0);
+            if (callee == null) return;
+        }
         if (!"identifier".equals(callee.getType())) return;
 
         String name = nodeText(callee, source);

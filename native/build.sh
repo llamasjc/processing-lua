@@ -92,6 +92,22 @@ for fn in ts_language_version ts_language_symbol_count ts_language_field_count; 
   grep -q "return id ? (jint)$fn" "$LANG_CC" || { echo "null-guard patch failed for $fn" >&2; exit 1; }
 done
 
+# ── tree-sitter-lua: scanner state starts out uninitialised ──────────────
+# The Lua grammar's scanner allocates its state with malloc and never clears
+# it, and only restores it when tree-sitter hands back a saved state. So a new
+# parser begins with whatever was in that memory: sometimes "inside a string",
+# and then perfectly good code parses as errors until something resets it.
+# Same thing between two parses on one parser. Zero it in both places.
+if [ "$GRAMMAR" = lua ]; then
+  SCANNER=$JTS/$GRAMMAR_REPO/src/scanner.c
+  if ! grep -q 'luamode: start clean' "$SCANNER"; then
+    perl -0pi -e 's/return malloc\(sizeof\(struct ScannerState\)\);/return calloc(1, sizeof(struct ScannerState)); \/\/ luamode: start clean/' "$SCANNER"
+    perl -0pi -e 's/(external_scanner_deserialize\(void \*payload, const char \*buffer, unsigned int length\)\s*\{)/$1\n  ((struct ScannerState *)payload)->started = 0; \/\/ luamode: start clean\n  ((struct ScannerState *)payload)->depth = 0;/' "$SCANNER"
+  fi
+  [ "$(grep -c 'luamode: start clean' "$SCANNER")" = 2 ] || {
+    echo "scanner state patch did not apply to $SCANNER (grammar changed?)" >&2; exit 1; }
+fi
+
 # ── compile ────────────────────────────────────────────────────────────────
 OBJ=$WORK/obj-$PLATFORM-$GRAMMAR
 rm -rf "$OBJ" && mkdir -p "$OBJ"

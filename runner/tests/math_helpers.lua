@@ -1,0 +1,32 @@
+-- stdout: ok
+assert(constrain(5, 0, 10) == 5 and constrain(-1, 0, 10) == 0 and constrain(11, 0, 10) == 10)
+assert(constrain(5, 10, 0) ~= nil, "constrain with swapped bounds must not blow up")
+assert(math.type(floor(3.7)) == "integer" and floor(3.7) == 3)
+assert(math.type(ceil(3.2)) == "integer" and ceil(3.2) == 4)
+assert(round(2.5) == 3 and round(-2.4) == -2 and math.type(round(2.5)) == "integer")
+assert(int(3.9) == 3 and int(-3.9) == -3 and int("42") == 42 and int(0/0) == 0)
+assert(abs(-3) == 3 and math.type(abs(-3)) == "integer")
+assert(min(3, 1, 2) == 1 and max(3, 1, 2) == 3)
+assert(map(5, 0, 10, 0, 100) == 50)
+assert(lerp(0, 10, 0.25) == 2.5)
+assert(norm(5, 0, 10) == 0.5)
+assert(dist(0, 0, 3, 4) == 5 and mag(3, 4) == 5)
+assert(sq(4) == 16 and pow(2, 10) == 1024 and sqrt(81) == 9)
+assert(abs(atan2(1, 1) - QUARTER_PI) < 1e-6)
+assert(abs(degrees(PI) - 180) < 1e-4 and abs(radians(180) - PI) < 1e-6)
+-- full double precision, not squeezed through a 32-bit float
+assert(floor(16777217) == 16777217)
+assert(map(16777217, 0, 1, 0, 1) == 16777217)
+for i = 1, 1000 do
+  local r = random(10)        assert(r >= 0 and r < 10)
+  local q = random(-5, 5)     assert(q >= -5 and q < 5)
+  local n = noise(i * 0.1)    assert(n >= 0 and n <= 1, "noise in 0..1: " .. n)
+end
+randomSeed(42) local a = random(100)
+randomSeed(42) local b = random(100)
+assert(a == b, "randomSeed repeats")
+randomSeed(-1) randomSeed(1.5) noiseSeed(-3) noiseSeed(2.5)
+assert(type(randomGaussian()) == "number")
+assert(LEFT == 37 and RIGHT == 39 and UP == 38 and DOWN == 40, "arrow key codes")
+print("ok")
+function setup() exit() end
