@@ -189,7 +189,7 @@ public class TsLuaTokenMarker extends TokenMarker {
         SyntaxDocument doc = syntaxDoc;
         if (doc == null || disposed) return;
         // without the native library there is nothing to parse with
-        if (!LuaMode.isNativeLoaded()) return;
+        if (!LuaNative.isLoaded()) return;
 
         String src;
         try {

@@ -21,7 +21,7 @@ final class NativeLib {
         if (loaded != null) return loaded;
         String name = System.mapLibraryName("java-tree-sitter");
         String dir  = System.getProperty("luamode.native.dir",
-                                         "lib/" + LuaMode.detectPlatform());
+                                         "lib/" + LuaNative.platform());
         File lib = new File(dir, name);
         String problem = null;
         if (!lib.isFile()) {
@@ -29,7 +29,7 @@ final class NativeLib {
         } else {
             try {
                 System.load(lib.getAbsolutePath());
-                LuaMode.markNativeLoaded();
+                LuaNative.markLoaded();
             } catch (Throwable t) {
                 problem = "could not load " + lib + ": " + t;
             }

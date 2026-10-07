@@ -68,6 +68,7 @@ public class LuaMode extends Mode {
             // libjava-tree-sitter.so / libjava-tree-sitter.dylib / java-tree-sitter.dll
             loadBundledLib(System.mapLibraryName("java-tree-sitter"), "java-tree-sitter");
             nativeLoaded = true;
+            LuaNative.markLoaded();
         } catch (Throwable e) {
             System.err.println("[LuaMode] Failed to load tree-sitter native: " + e);
         }
@@ -80,6 +81,7 @@ public class LuaMode extends Mode {
     /** For tests, which load the library themselves instead of going through a Mode instance. */
     static void markNativeLoaded() {
         nativeLoaded = true;
+        LuaNative.markLoaded();
     }
 
     private static void loadBundledLib(String libFile, String prefix) throws Exception {
