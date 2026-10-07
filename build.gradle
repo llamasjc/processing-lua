@@ -16,7 +16,9 @@ repositories {
 //   4.3:   lib/pde.jar,                  core/library/core.jar
 def processingDir = file(System.getenv('PROCESSING_DIR') ?: '/usr/lib/processing')
 def processingJars = fileTree(processingDir) {
-    include 'lib/app/app-*.jar', 'lib/app/resources/core/library/core*.jar'
+    // every jar of the app: 4.5.x split classes like processing.utils.SketchException
+    // out of app-*.jar, and the tests need them at runtime
+    include 'lib/app/*.jar', 'lib/app/resources/core/library/core*.jar'
     include 'lib/pde.jar', 'core/library/core.jar'
 }
 
