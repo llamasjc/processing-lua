@@ -472,3 +472,220 @@ do
     return drawImage(img, ...)
   end
 end
+
+-- ── loadShape (SVG) ───────────────────────────────────────────────────────
+-- local logo = loadShape("logo.svg")     -- nil if it can't be read
+-- shape(logo, 10, 10)   shape(logo, 10, 10, 200, 100)   logo.width, logo.height
+-- logo:disableStyle() draws it with the sketch's fill and stroke; logo:enableStyle()
+-- goes back to the colors in the file.
+do
+  local load, draw, style = __loadShape, __shape, __shapeStyle
+  __loadShape, __shape, __shapeStyle = nil, nil, nil
+  local Shape = {}
+  Shape.__index = Shape
+  function Shape:disableStyle() style(self.id, false) return self end
+  function Shape:enableStyle() style(self.id, true) return self end
+  Shape.__tostring = function(s) return "shape " .. s.width .. "x" .. s.height end
+  function loadShape(path)
+    local id, w, h = load(path)
+    if id == 0 then return nil end
+    return setmetatable({ id = id, width = w, height = h }, Shape)
+  end
+  function shape(s, ...)
+    if getmetatable(s) ~= Shape then
+      if s == nil then return end       -- a shape that didn't load: draw nothing, as with a missing image
+      error("shape() expects a shape from loadShape()", 2)
+    end
+    return draw(s.id, ...)
+  end
+end
+
+-- ── loadTable (CSV / TSV) ─────────────────────────────────────────────────
+-- local t = loadTable("scores.csv", "header")     -- nil if it can't be read
+-- t:getRowCount()  t:getColumnCount()
+-- t:getString(row, "name")  t:getInt(row, 2)  t:getFloat(row, "score")   rows and columns count from 0
+-- for row in t:rows() do print(row:getString("name")) end
+-- t:addRow()  t:setString(row, col, v)  t:setInt / setFloat   saveTable(t, "out.csv")
+-- Without "header" the columns only have numbers. A .tsv file (or the
+-- option "tsv") is split on tabs.
+do
+  local Table, Row = {}, {}
+  Table.__index, Row.__index = Table, Row
+
+  -- one record of CSV text starting at pos -> list of fields, position after it
+  local function record(text, pos, sep)
+    local fields, n = {}, 0
+    local len = #text
+    while true do
+      local c = text:sub(pos, pos)
+      local value
+      if c == '"' then
+        local parts, i = {}, pos + 1
+        while true do
+          local q = text:find('"', i, true)
+          if not q then parts[#parts + 1] = text:sub(i) pos = len + 1 break end
+          parts[#parts + 1] = text:sub(i, q - 1)
+          if text:sub(q + 1, q + 1) == '"' then parts[#parts + 1] = '"' i = q + 2
+          else pos = q + 1 break end
+        end
+        value = table.concat(parts)
+        -- anything between the closing quote and the separator is dropped
+        local stop = text:find("[" .. sep .. "\r\n]", pos) or len + 1
+        pos = stop
+      else
+        local stop = text:find("[" .. sep .. "\r\n]", pos) or len + 1
+        value = text:sub(pos, stop - 1)
+        pos = stop
+      end
+      n = n + 1
+      fields[n] = value
+      local d = text:sub(pos, pos)
+      if d == sep then pos = pos + 1
+      else
+        if d == "\r" then pos = pos + 1 if text:sub(pos, pos) == "\n" then pos = pos + 1 end
+        elseif d == "\n" then pos = pos + 1 end
+        return fields, pos
+      end
+    end
+  end
+
+  local function column(t, col)
+    if type(col) == "number" then
+      if math.type(col) ~= "integer" then col = math.floor(col) end
+      return col
+    end
+    local i = t.index[col]
+    if i == nil then error('this table has no column "' .. tostring(col) .. '"', 3) end
+    return i
+  end
+  local function cell(t, row, col)
+    local r = t.data[row]
+    if r == nil then error("row " .. tostring(row) .. " is outside the table (it has " .. #t.data + (t.data[0] and 1 or 0) .. " rows)", 3) end
+    return r[column(t, col)]
+  end
+
+  function Table:getRowCount() return self.count end
+  function Table:getColumnCount() return self.columns end
+  function Table:getColumnTitles()
+    local out = {}
+    for i = 0, self.columns - 1 do out[i + 1] = self.titles[i] or "" end
+    return out
+  end
+  function Table:getString(row, col) local v = cell(self, row, col) return v == nil and "" or tostring(v) end
+  function Table:getFloat(row, col) return tonumber(cell(self, row, col)) or 0 end
+  function Table:getInt(row, col)
+    local v = tonumber(cell(self, row, col)) or 0
+    return v >= 0 and math.floor(v) or math.ceil(v)
+  end
+  local function put(t, row, col, v)
+    if t.data[row] == nil then error("row " .. tostring(row) .. " is outside the table", 3) end
+    local c = column(t, col)
+    if c < 0 then error("column " .. c .. " is outside the table", 3) end
+    t.data[row][c] = v
+    if c >= t.columns then t.columns = c + 1 end
+  end
+  function Table:setString(row, col, v) put(self, row, col, tostring(v)) end
+  function Table:setInt(row, col, v) put(self, row, col, tostring(math.floor(tonumber(v) or 0))) end
+  function Table:setFloat(row, col, v) put(self, row, col, tostring(tonumber(v) or 0)) end
+  -- addRow() -> the new row
+  function Table:addRow()
+    self.data[self.count] = {}
+    self.count = self.count + 1
+    return setmetatable({ table = self, index = self.count - 1 }, Row)
+  end
+  function Table:addColumn(title)
+    if title ~= nil then self.titles[self.columns] = tostring(title) self.index[tostring(title)] = self.columns end
+    self.columns = self.columns + 1
+  end
+  function Table:getRow(i)
+    if self.data[i] == nil then error("row " .. tostring(i) .. " is outside the table", 2) end
+    return setmetatable({ table = self, index = i }, Row)
+  end
+  -- for row in t:rows() do ... end
+  function Table:rows()
+    local i = -1
+    return function()
+      i = i + 1
+      if i < self.count then return setmetatable({ table = self, index = i }, Row) end
+    end
+  end
+  function Row:getString(col) return self.table:getString(self.index, col) end
+  function Row:getInt(col) return self.table:getInt(self.index, col) end
+  function Row:getFloat(col) return self.table:getFloat(self.index, col) end
+  function Row:setString(col, v) self.table:setString(self.index, col, v) end
+  function Row:setInt(col, v) self.table:setInt(self.index, col, v) end
+  function Row:setFloat(col, v) self.table:setFloat(self.index, col, v) end
+
+  local function options(opts, path)
+    opts = tostring(opts or "")
+    local tsv = opts:find("tsv", 1, true) ~= nil or (opts:find("csv", 1, true) == nil and tostring(path):lower():match("%.tsv$") ~= nil)
+    return opts:find("header", 1, true) ~= nil, tsv and "\t" or ","
+  end
+
+  -- an empty table to fill in: createTable("name", "score")
+  function createTable(...)
+    local t = setmetatable({ data = {}, count = 0, columns = 0, titles = {}, index = {}, header = false }, Table)
+    for _, title in ipairs { ... } do t:addColumn(title) t.header = true end
+    return t
+  end
+
+  function loadTable(path, opts)
+    local f = io.open(path, "rb")
+    if not f then
+      f = io.open("data/" .. tostring(path), "rb")
+      if not f then
+        io.stderr:write("loadTable: could not open " .. tostring(path) .. "\n")
+        return nil
+      end
+    end
+    local text = f:read("a"):gsub("^\xEF\xBB\xBF", "")
+    f:close()
+    local header, sep = options(opts, path)
+    local t = createTable()
+    t.header = header
+    local pos, len = 1, #text
+    local first = true
+    while pos <= len do
+      local fields
+      fields, pos = record(text, pos, sep)
+      if first and header then
+        for i, title in ipairs(fields) do t.titles[i - 1] = title if t.index[title] == nil then t.index[title] = i - 1 end end
+        if #fields > t.columns then t.columns = #fields end
+      elseif not (#fields == 1 and fields[1] == "") then      -- skip blank lines
+        local row = {}
+        for i, v in ipairs(fields) do row[i - 1] = v end
+        t.data[t.count] = row
+        t.count = t.count + 1
+        if #fields > t.columns then t.columns = #fields end
+      end
+      first = false
+    end
+    return t
+  end
+
+  function saveTable(t, path, opts)
+    if getmetatable(t) ~= Table then error("saveTable() expects a table from loadTable() or createTable()", 2) end
+    local _, sep = options(opts, path)
+    local function field(v)
+      v = v == nil and "" or tostring(v)
+      if v:find('[",\t\r\n]') then v = '"' .. v:gsub('"', '""') .. '"' end
+      return v
+    end
+    local f, why = io.open(path, "w")
+    if not f then
+      io.stderr:write("saveTable: could not write " .. tostring(path) .. " (" .. tostring(why) .. ")\n")
+      return false
+    end
+    local line = {}
+    if t.header then
+      for c = 0, t.columns - 1 do line[c + 1] = field(t.titles[c]) end
+      f:write(table.concat(line, sep), "\n")
+    end
+    for r = 0, t.count - 1 do
+      for c = 0, t.columns - 1 do line[c + 1] = field(t.data[r][c]) end
+      f:write(table.concat(line, sep), "\n")
+    end
+    f:close()
+    return true
+  end
+end

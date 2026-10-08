@@ -879,6 +879,25 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         Ok(())
     })?)?;
 
+    // loadShape: prelude.lua wraps these into an object with width, height,
+    // disableStyle() and enableStyle()
+    g.set("__loadShape", lua.create_function(|_, path: LuaString| {
+        let id = processing::load_shape(&path.to_string_lossy());
+        let (w, h) = processing::shape_size(id);
+        Ok((id as i64, w as f64, h as f64))
+    })?)?;
+    g.set("__shape", lua.create_function(|_, (id, x, y, w, h): (i64, Option<f32>, Option<f32>, Option<f32>, Option<f32>)| {
+        let (x, y) = (x.unwrap_or(0.0), y.unwrap_or(0.0));
+        match (w, h) {
+            (Some(w), Some(h)) => processing::shape_sized(id as u64, x, y, w, h),
+            _                  => processing::shape(id as u64, x, y),
+        }
+        Ok(())
+    })?)?;
+    g.set("__shapeStyle", lua.create_function(|_, (id, on): (i64, bool)| {
+        processing::shape_own_style(id as u64, on); Ok(())
+    })?)?;
+
     // createGraphics: the Lua side (prelude.lua) wraps these into an object
     // with beginDraw / endDraw and hands image() the right one.
     g.set("__createGraphics", lua.create_function(|_, (w, h): (LuaValue, LuaValue)| {

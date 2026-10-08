@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- test drawing: every element kind once -->
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="120" viewBox="0 0 200 120">
+  <defs><rect id="unused" x="0" y="0" width="200" height="120" fill="#ffffff"/></defs>
+  <rect x="10" y="10" width="40" height="30" fill="#ff0000"/>
+  <circle cx="90" cy="25" r="15" fill="rgb(0, 255, 0)" stroke="none"/>
+  <g transform="translate(120, 10)" fill="blue">
+    <rect width="30" height="30"/>
+    <rect x="40" width="30" height="30" style="fill: yellow; stroke: #000; stroke-width: 4"/>
+  </g>
+  <!-- a square with a square hole: two contours in one path -->
+  <path d="M10 60 h40 v40 h-40 z M20 70 v20 h20 v-20 z" fill="#ff00ff"/>
+  <path d="M70,60 C70,100 110,100 110,60 S150,20 150,60" fill="none" stroke="white" stroke-width="3"/>
+  <path d="M160 100 a15 15 0 1 1 30 0z" fill="#00ffff" fill-opacity="0.5"/>
+  <polygon points="70,100 90,80 110,100" fill="orange"/>
+  <line x1="120" y1="110" x2="150" y2="110" stroke="red" stroke-width="2"/>
+  <ellipse cx="100" cy="112" rx="8" ry="4" fill="none" display="none"/>
+  <text x="0" y="0">ignored</text>
+</svg>

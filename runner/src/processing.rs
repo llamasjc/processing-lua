@@ -188,6 +188,11 @@ pub fn rect_radii(a: f32, b: f32, c: f32, d: f32, tl: f32, tr: f32, br: f32, bl:
     let (x, y, w, h) = to_corner(RECT_MODE.load(Ordering::Relaxed), a, b, c, d);
     engine::rect_radii(x, y, w, h, tl, tr, br, bl)
 }
+pub fn load_shape(path: &str) -> u64 { engine::load_shape(path) }
+pub fn shape_size(id: u64) -> (f32, f32) { (engine::shape_width(id), engine::shape_height(id)) }
+pub fn shape(id: u64, x: f32, y: f32) { engine::shape(id, x, y) }
+pub fn shape_sized(id: u64, x: f32, y: f32, w: f32, h: f32) { engine::shape_sized(id, x, y, w, h) }
+pub fn shape_own_style(id: u64, on: bool) { if on { engine::shape_enable_style(id) } else { engine::shape_disable_style(id) } }
 pub fn create_graphics(w: u32, h: u32) -> u64 { engine::create_graphics(w, h) }
 pub fn begin_graphics(id: u64) -> bool { engine::begin_graphics(id) }
 pub fn end_graphics() { engine::end_graphics() }
