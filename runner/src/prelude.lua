@@ -491,13 +491,151 @@ do
     if id == 0 then return nil end
     return setmetatable({ id = id, width = w, height = h }, Shape)
   end
+  -- shapes made in code (createShape, below) register how to draw themselves here
+  __shapeKinds = {}
   function shape(s, ...)
-    if getmetatable(s) ~= Shape then
-      if s == nil then return end       -- a shape that didn't load: draw nothing, as with a missing image
-      error("shape() expects a shape from loadShape()", 2)
-    end
-    return draw(s.id, ...)
+    local mt = getmetatable(s)
+    if mt == Shape then return draw(s.id, ...) end
+    local own = __shapeKinds[mt]
+    if own then return own(s, ...) end
+    if s == nil then return end         -- a shape that didn't load: draw nothing, as with a missing image
+    error("shape() expects a shape from loadShape() or createShape()", 2)
   end
+end
+
+-- ── createShape ───────────────────────────────────────────────────────────
+-- A shape built once and drawn many times.
+--   local star = createShape()
+--   star:beginShape()  star:fill(255, 200, 0)  star:vertex(0, -50) ...  star:endShape(CLOSE)
+--   local box  = createShape(RECT, 0, 0, 80, 40)
+--   local both = createShape(GROUP)  both:addChild(star)  both:addChild(box)
+--   shape(star, x, y)
+-- Style calls made on the shape (fill, stroke, strokeWeight, noFill, noStroke)
+-- belong to it; a shape without any is drawn with the sketch's current style.
+-- s:setFill(c) / s:setStroke(c) / s:setStrokeWeight(w) change them later.
+-- s:translate / s:rotate / s:scale turn the shape itself, and add up.
+POINT, LINE, TRIANGLE, QUAD, RECT, ELLIPSE, ARC, GROUP = 2, 4, 8, 16, 30, 31, 32, 0
+do
+  local Made = {}
+  Made.__index = Made
+  local primitives = { [POINT] = "point", [LINE] = "line", [TRIANGLE] = "triangle", [QUAD] = "quad",
+                       [RECT] = "rect", [ELLIPSE] = "ellipse", [ARC] = "arc" }
+  local recorded = { "vertex", "bezierVertex", "quadraticVertex", "curveVertex" }
+  local styles = { "fill", "stroke", "noFill", "noStroke", "strokeWeight", "strokeCap", "strokeJoin" }
+
+  function createShape(kind, ...)
+    local s = setmetatable({ steps = {}, style = {}, moves = {}, children = {}, styled = true }, Made)
+    if kind == nil then return s end
+    if kind == GROUP then s.group = true return s end
+    local name = primitives[kind]
+    if not name then error("createShape(): unknown kind of shape", 2) end
+    s.steps[1] = { name, ... }
+    return s
+  end
+
+  function Made:beginShape(kind) self.steps = { { "beginShape", kind } } self.open = true return self end
+  function Made:endShape(mode) self.steps[#self.steps + 1] = { "endShape", mode } self.open = false return self end
+  for _, name in ipairs(recorded) do
+    Made[name] = function(self, ...)
+      if not self.open then error(name .. "() on a shape needs beginShape() first", 2) end
+      self.steps[#self.steps + 1] = { name, ... }
+      return self
+    end
+  end
+  for _, name in ipairs(styles) do
+    Made[name] = function(self, ...) self.style[#self.style + 1] = { name, ... } return self end
+  end
+  -- replace every earlier call of one kind
+  local function restyle(self, drop, entry)
+    local kept = {}
+    for _, st in ipairs(self.style) do
+      local gone = false
+      for _, d in ipairs(drop) do if st[1] == d then gone = true end end
+      if not gone then kept[#kept + 1] = st end
+    end
+    kept[#kept + 1] = entry
+    self.style = kept
+    return self
+  end
+  function Made:setFill(...) return restyle(self, { "fill", "noFill" }, { "fill", ... }) end
+  function Made:setStroke(...) return restyle(self, { "stroke", "noStroke" }, { "stroke", ... }) end
+  function Made:setStrokeWeight(w) return restyle(self, { "strokeWeight" }, { "strokeWeight", w }) end
+  function Made:disableStyle() self.styled = false for _, c in ipairs(self.children) do c:disableStyle() end return self end
+  function Made:enableStyle() self.styled = true for _, c in ipairs(self.children) do c:enableStyle() end return self end
+
+  function Made:translate(x, y) self.moves[#self.moves + 1] = { "translate", x, y } return self end
+  function Made:rotate(a) self.moves[#self.moves + 1] = { "rotate", a } return self end
+  function Made:scale(...) self.moves[#self.moves + 1] = { "scale", ... } return self end
+  function Made:resetMatrix() self.moves = {} return self end
+
+  -- children can be shapes made here or loaded with loadShape()
+  function Made:addChild(child)
+    local made = getmetatable(child) == Made
+    if not made and not (type(child) == "table" and child.id) then error("addChild() expects a shape", 2) end
+    local c = self
+    while c do      -- a shape can't end up inside itself
+      if c == child then error("addChild(): a shape can't be put inside itself", 2) end
+      c = c.parent
+    end
+    if made then child.parent = self end
+    self.children[#self.children + 1] = child
+    return self
+  end
+  function Made:getChild(i) return self.children[i + 1] end        -- counts from 0, as in Processing
+  function Made:getChildCount() return #self.children end
+
+  -- vertices, counted from 0
+  local function nth_vertex(self, i)
+    local n = -1
+    for _, st in ipairs(self.steps) do
+      if st[1] == "vertex" then
+        n = n + 1
+        if n == i then return st end
+      end
+    end
+  end
+  function Made:getVertexCount()
+    local n = 0
+    for _, st in ipairs(self.steps) do if st[1] == "vertex" then n = n + 1 end end
+    return n
+  end
+  function Made:getVertex(i)
+    local st = nth_vertex(self, i)
+    if not st then error("getVertex(" .. tostring(i) .. "): the shape has " .. self:getVertexCount() .. " vertices", 2) end
+    return st[2], st[3]
+  end
+  function Made:setVertex(i, x, y)
+    local st = nth_vertex(self, i)
+    if not st then error("setVertex(" .. tostring(i) .. "): the shape has " .. self:getVertexCount() .. " vertices", 2) end
+    st[2], st[3] = x, y
+    return self
+  end
+
+  local unpack = table.unpack
+  local function paint(self, depth)
+    if depth > 64 then return end
+    pushMatrix()
+    pushStyle()
+    for _, mv in ipairs(self.moves) do _G[mv[1]](unpack(mv, 2)) end
+    if self.styled then
+      for _, st in ipairs(self.style) do _G[st[1]](unpack(st, 2)) end
+    end
+    if not self.open then
+      for _, st in ipairs(self.steps) do _G[st[1]](unpack(st, 2, 9)) end
+    end
+    for _, child in ipairs(self.children) do
+      if getmetatable(child) == Made then paint(child, depth + 1) else shape(child, 0, 0) end
+    end
+    popStyle()
+    popMatrix()
+  end
+  __shapeKinds[Made] = function(self, x, y)
+    pushMatrix()
+    translate(x or 0, y or 0)
+    paint(self, 0)
+    popMatrix()
+  end
+  Made.__tostring = function(s) return s.group and ("group of " .. #s.children .. " shapes") or "shape" end
 end
 
 -- ── loadTable (CSV / TSV) ─────────────────────────────────────────────────
