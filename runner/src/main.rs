@@ -879,6 +879,16 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         Ok(())
     })?)?;
 
+    // Sound: prelude.lua wraps these into objects (loadSound, SinOsc, ...)
+    g.set("__loadSound", lua.create_function(|_, path: LuaString| {
+        Ok(processing::load_sound(&path.to_string_lossy()) as i64)
+    })?)?;
+    g.set("__oscillator", lua.create_function(|_, shape: String| Ok(processing::oscillator(&shape) as i64))?)?;
+    g.set("__sound", lua.create_function(|_, (id, what, v): (i64, String, Option<LuaValue>)| {
+        let v = match v { Some(v) => num(&v, &what)? as f32, None => 0.0 };
+        Ok(processing::sound(id.max(0) as u64, &what, v) as f64)
+    })?)?;
+
     // loadShape: prelude.lua wraps these into an object with width, height,
     // disableStyle() and enableStyle()
     g.set("__loadShape", lua.create_function(|_, path: LuaString| {

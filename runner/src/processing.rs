@@ -188,6 +188,31 @@ pub fn rect_radii(a: f32, b: f32, c: f32, d: f32, tl: f32, tr: f32, br: f32, bl:
     let (x, y, w, h) = to_corner(RECT_MODE.load(Ordering::Relaxed), a, b, c, d);
     engine::rect_radii(x, y, w, h, tl, tr, br, bl)
 }
+pub fn load_sound(path: &str) -> u64 { engine::load_sound(path) }
+pub fn oscillator(shape: &str) -> u64 {
+    match shape {
+        "sqr" => engine::sqr_osc(), "saw" => engine::saw_osc(), "tri" => engine::tri_osc(),
+        "noise" => engine::white_noise(), _ => engine::sin_osc(),
+    }
+}
+/// One control of a sound or oscillator. Returns a value for the ones that ask something.
+pub fn sound(id: u64, what: &str, v: f32) -> f32 {
+    match what {
+        "play"  => engine::sound_play(id),
+        "loop"  => engine::sound_loop(id),
+        "pause" => engine::sound_pause(id),
+        "stop"  => engine::sound_stop(id),
+        "amp"   => engine::sound_amp(id, v),
+        "pan"   => engine::sound_pan(id, v),
+        "rate"  => engine::sound_rate(id, v),
+        "jump"  => engine::sound_jump(id, v),
+        "playing"  => return if engine::sound_is_playing(id) { 1.0 } else { 0.0 },
+        "duration" => return engine::sound_duration(id),
+        "position" => return engine::sound_position(id),
+        _ => {}
+    }
+    0.0
+}
 pub fn load_shape(path: &str) -> u64 { engine::load_shape(path) }
 pub fn shape_size(id: u64) -> (f32, f32) { (engine::shape_width(id), engine::shape_height(id)) }
 pub fn shape(id: u64, x: f32, y: f32) { engine::shape(id, x, y) }

@@ -827,3 +827,63 @@ do
     return true
   end
 end
+
+-- ── Sound ─────────────────────────────────────────────────────────────────
+-- local beep = loadSound("beep.wav")      -- WAV, OGG, FLAC or MP3; nil if it can't be read
+-- beep:play()  beep:loop()  beep:pause()  beep:stop()  beep:isPlaying()
+-- beep:amp(0.5)       volume, 0 to 1
+-- beep:pan(-1)        -1 left, 0 middle, 1 right
+-- beep:rate(2)        speed: 2 is twice as fast and an octave up
+-- beep:jump(1.5)      go to a time in seconds      beep:duration()  beep:position()
+--
+-- local tone = SinOsc()                   -- also SqrOsc, SawOsc, TriOsc, WhiteNoise
+-- tone:freq(440)  tone:amp(0.3)  tone:pan(0)  tone:play()  tone:stop()
+-- An oscillator is silent until play(). Make sounds once, in setup().
+do
+  local load, osc, ctl = __loadSound, __oscillator, __sound
+  __loadSound, __oscillator, __sound = nil, nil, nil
+  local Sound, Osc = {}, {}
+  Sound.__index, Osc.__index = Sound, Osc
+
+  for _, name in ipairs { "play", "loop", "pause", "stop" } do
+    Sound[name] = function(self) ctl(self.id, name) return self end
+  end
+  for _, name in ipairs { "amp", "pan", "rate", "jump" } do
+    Sound[name] = function(self, v)
+      if type(v) ~= "number" then error(name .. "() expects a number", 2) end
+      ctl(self.id, name, v)
+      return self
+    end
+  end
+  function Sound:isPlaying() return ctl(self.id, "playing") ~= 0 end
+  function Sound:duration() return ctl(self.id, "duration") end
+  function Sound:position() return ctl(self.id, "position") end
+  Sound.__tostring = function(s) return string.format("sound, %.2f seconds", s:duration()) end
+
+  function loadSound(path)
+    local id = load(path)
+    if id == 0 then return nil end
+    return setmetatable({ id = id }, Sound)
+  end
+
+  function Osc:play() ctl(self.id, "loop") return self end
+  function Osc:stop() ctl(self.id, "pause") return self end
+  function Osc:isPlaying() return ctl(self.id, "playing") ~= 0 end
+  for name, what in pairs { freq = "rate", amp = "amp", pan = "pan" } do
+    Osc[name] = function(self, v)
+      if type(v) ~= "number" then error(name .. "() expects a number", 2) end
+      ctl(self.id, what, v)
+      return self
+    end
+  end
+  Osc.__tostring = function() return "oscillator" end
+  local function maker(shape, name)
+    return function()
+      local id = osc(shape)
+      if id == 0 then error(name .. "(): too many sounds (make them once in setup())", 2) end
+      return setmetatable({ id = id }, Osc)
+    end
+  end
+  SinOsc, SqrOsc, SawOsc, TriOsc = maker("sin", "SinOsc"), maker("sqr", "SqrOsc"), maker("saw", "SawOsc"), maker("tri", "TriOsc")
+  WhiteNoise = maker("noise", "WhiteNoise")
+end
