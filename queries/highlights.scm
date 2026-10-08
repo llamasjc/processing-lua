@@ -84,17 +84,17 @@
 ;; -- Processing time / control - @function.builtin ------------------------
 ((identifier) @function.builtin
   (#match? @function.builtin
-    "^(millis|delay|frameRate|setFrameRate|loop|noLoop|redraw|exit|cursor|noCursor|windowTitle|windowResizable|shearX|shearY|applyMatrix|blendMode|imageMode|imageWidth|imageHeight|set|color|red|green|blue|alpha|hue|saturation|brightness|createVector|bezierPoint|bezierTangent|curvePoint|curveTangent|year|month|day|hour|minute|second|trim|join|split|nf|loadStrings|saveStrings|save|loadPixels|updatePixels|createGraphics|clear|createFont|loadFont|textFont|textLeading|print|println)$"))
+    "^(millis|delay|frameRate|setFrameRate|loop|noLoop|redraw|exit|cursor|noCursor|windowTitle|windowResizable|shearX|shearY|applyMatrix|blendMode|imageMode|imageWidth|imageHeight|set|color|red|green|blue|alpha|hue|saturation|brightness|createVector|bezierPoint|bezierTangent|curvePoint|curveTangent|year|month|day|hour|minute|second|trim|join|split|nf|loadStrings|saveStrings|save|loadPixels|updatePixels|createGraphics|clear|createFont|loadFont|textFont|textLeading|filter|fullScreen|hex|unhex|binary|unbinary|printArray|parseJSON|toJSON|loadJSON|saveJSON|print|println)$"))
 
 ;; -- Processing environment globals - @variable.builtin -------------------
 ((identifier) @variable.builtin
   (#match? @variable.builtin
-    "^(width|height|mouseX|mouseY|pmouseX|pmouseY|frameCount|pixels|mouseButton|mouseIsPressed|key|keyCode|keyIsPressed)$"))
+    "^(width|height|mouseX|mouseY|pmouseX|pmouseY|frameCount|pixels|focused|displayWidth|displayHeight|mouseButton|mouseIsPressed|key|keyCode|keyIsPressed)$"))
 
 ;; -- Processing constants - @variable.builtin -----------------------------
 ((identifier) @variable.builtin
   (#match? @variable.builtin
-    "^(PI|TWO_PI|HALF_PI|QUARTER_PI|TAU|NONE|PIE|CHORD|LEFT|RIGHT|CENTER|TOP|BOTTOM|BASELINE|RADIUS|CORNER|CORNERS|OPEN|CLOSE|POINTS|LINES|TRIANGLES|TRIANGLE_STRIP|TRIANGLE_FAN|QUADS|QUAD_STRIP|POLYGON|RGB|HSB|ROUND|SQUARE|PROJECT|MITER|BEVEL|REPLACE|BLEND|ADD|SUBTRACT|LIGHTEST|DARKEST|DIFFERENCE|EXCLUSION|MULTIPLY|SCREEN|PVector|UP|DOWN|ENTER|RETURN|BACKSPACE|TAB|DELETE|ESC|CODED|ALT|CONTROL|SHIFT)$"))
+    "^(PI|TWO_PI|HALF_PI|QUARTER_PI|TAU|NONE|PIE|CHORD|LEFT|RIGHT|CENTER|TOP|BOTTOM|BASELINE|RADIUS|CORNER|CORNERS|OPEN|CLOSE|POINTS|LINES|TRIANGLES|TRIANGLE_STRIP|TRIANGLE_FAN|QUADS|QUAD_STRIP|POLYGON|RGB|HSB|ROUND|SQUARE|PROJECT|MITER|BEVEL|REPLACE|BLEND|ADD|SUBTRACT|LIGHTEST|DARKEST|DIFFERENCE|EXCLUSION|MULTIPLY|SCREEN|PVector|BLUR|GRAY|INVERT|OPAQUE|POSTERIZE|THRESHOLD|ERODE|DILATE|UP|DOWN|ENTER|RETURN|BACKSPACE|TAB|DELETE|ESC|CODED|ALT|CONTROL|SHIFT)$"))
 
 ;; -- General function calls ------------------------------------------------
 (call function: (variable name: (identifier) @function))

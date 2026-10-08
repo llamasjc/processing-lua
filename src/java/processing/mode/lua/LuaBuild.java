@@ -55,6 +55,11 @@ public final class LuaBuild {
     /** Run the sketch in present mode on this screen (null: a normal window). */
     public void setPresent(java.awt.Rectangle screen) { presentOn = screen; }
 
+    // The screen the editor is on: fullScreen(), displayWidth and displayHeight need it.
+    private volatile java.awt.Rectangle display;
+
+    public void setDisplay(java.awt.Rectangle screen) { display = screen; }
+
     // ── Construction ──────────────────────────────────────────────────────
 
     public LuaBuild(Sketch sketch, File modeFolder) {
@@ -132,6 +137,13 @@ public final class LuaBuild {
         // kill -9), the pipe closes and the sketch window closes with it
         // instead of staying behind as an orphan.
         pb.environment().put("LUAMODE_WATCH_STDIN", "1");
+        java.awt.Rectangle disp = display;
+        if (disp != null && disp.width > 0 && disp.height > 0) {
+            pb.environment().put("PROCESSING_DISPLAY",
+                disp.width + "," + disp.height + "," + disp.x + "," + disp.y);
+        } else {
+            pb.environment().remove("PROCESSING_DISPLAY");
+        }
         java.awt.Rectangle scr = presentOn;
         if (scr != null && scr.width > 0 && scr.height > 0) {
             pb.environment().put("LUAMODE_PRESENT",

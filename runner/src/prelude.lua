@@ -152,6 +152,214 @@ function saveStrings(path, lines)
 end
 function save(name) saveFrame(name or "screen.png") end
 
+-- ── Numbers as text ───────────────────────────────────────────────────────
+-- hex(255) -> "FF", hex(255, 6) -> "0000FF", unhex("FF") -> 255
+function hex(n, digits)
+  if math.type(n) ~= "integer" then n = math.floor(n) end
+  local s = string.format("%X", n & 0xFFFFFFFF)
+  if digits and #s < digits then s = string.rep("0", digits - #s) .. s end
+  if digits and #s > digits then s = s:sub(-digits) end
+  return s
+end
+function unhex(s) return tonumber(tostring(s), 16) or 0 end
+function binary(n, digits)
+  if math.type(n) ~= "integer" then n = math.floor(n) end
+  n = n & 0xFFFFFFFF
+  local s = ""
+  repeat s = (n & 1) .. s n = n >> 1 until n == 0
+  if digits and #s < digits then s = string.rep("0", digits - #s) .. s end
+  if digits and #s > digits then s = s:sub(-digits) end
+  return s
+end
+function unbinary(s) return tonumber(tostring(s), 2) or 0 end
+
+-- printArray({ "a", "b" }) prints "[1] a" and "[2] b", one per line
+function printArray(list)
+  if type(list) ~= "table" then return print(list) end
+  for i, v in ipairs(list) do print("[" .. i .. "] " .. tostring(v)) end
+end
+
+-- ── JSON ──────────────────────────────────────────────────────────────────
+-- parseJSON('{"a": [1, 2]}') -> { a = { 1, 2 } }      toJSON(value) -> text
+-- loadJSON("data.json") -> value, or nil if it can't be read or isn't JSON
+-- saveJSON("data.json", value)
+-- JSON null becomes nil. A table with only 1..n keys is written as a list,
+-- any other table as an object; an empty table is written as [].
+do
+  local function decode_error(text, pos, what)
+    local line = 1
+    for _ in text:sub(1, pos):gmatch("\n") do line = line + 1 end
+    error("JSON line " .. line .. ": " .. what, 0)
+  end
+  local escapes = { ['"'] = '"', ["\\"] = "\\", ["/"] = "/", b = "\b", f = "\f", n = "\n", r = "\r", t = "\t" }
+  local decode_value
+
+  local function skip(text, pos)
+    return text:find("%S", pos) or #text + 1
+  end
+  local function decode_string(text, pos)
+    local out, i = {}, pos + 1
+    while true do
+      local a = text:find('["\\]', i)
+      if not a then decode_error(text, pos, "text that never ends") end
+      out[#out + 1] = text:sub(i, a - 1)
+      if text:sub(a, a) == '"' then return table.concat(out), a + 1 end
+      local e = text:sub(a + 1, a + 1)
+      if e == "u" then
+        local code = tonumber(text:sub(a + 2, a + 5), 16)
+        if not code then decode_error(text, a, "bad \\u escape") end
+        i = a + 6
+        -- two \u escapes can make one character
+        if code >= 0xD800 and code <= 0xDBFF and text:sub(i, i + 1) == "\\u" then
+          local low = tonumber(text:sub(i + 2, i + 5), 16)
+          if low and low >= 0xDC00 and low <= 0xDFFF then
+            code = 0x10000 + (code - 0xD800) * 0x400 + (low - 0xDC00)
+            i = i + 6
+          end
+        end
+        out[#out + 1] = utf8.char(code)
+      elseif escapes[e] then
+        out[#out + 1] = escapes[e]
+        i = a + 2
+      else
+        decode_error(text, a, "bad escape \\" .. e)
+      end
+    end
+  end
+  local function decode_container(text, pos, depth, close, with_keys)
+    if depth > 200 then decode_error(text, pos, "nested too deeply") end
+    local out, i, n = {}, skip(text, pos + 1), 0
+    if text:sub(i, i) == close then return out, i + 1 end
+    while true do
+      local key
+      if with_keys then
+        if text:sub(i, i) ~= '"' then decode_error(text, i, "expected a name in quotes") end
+        key, i = decode_string(text, i)
+        i = skip(text, i)
+        if text:sub(i, i) ~= ":" then decode_error(text, i, "expected ':'") end
+        i = skip(text, i + 1)
+      end
+      local value
+      value, i = decode_value(text, i, depth + 1)
+      if with_keys then out[key] = value else n = n + 1 out[n] = value end
+      i = skip(text, i)
+      local c = text:sub(i, i)
+      if c == close then return out, i + 1 end
+      if c ~= "," then decode_error(text, i, "expected ',' or '" .. close .. "'") end
+      i = skip(text, i + 1)
+    end
+  end
+  decode_value = function(text, pos, depth)
+    pos = skip(text, pos)
+    local c = text:sub(pos, pos)
+    if c == "{" then return decode_container(text, pos, depth, "}", true) end
+    if c == "[" then return decode_container(text, pos, depth, "]", false) end
+    if c == '"' then return decode_string(text, pos) end
+    if text:sub(pos, pos + 3) == "true" then return true, pos + 4 end
+    if text:sub(pos, pos + 4) == "false" then return false, pos + 5 end
+    if text:sub(pos, pos + 3) == "null" then return nil, pos + 4 end
+    local num = text:match("^-?%d+%.?%d*[eE]?[+-]?%d*", pos)
+    local value = num and tonumber(num)
+    if not value then decode_error(text, pos, c == "" and "the text ends too soon" or "unexpected '" .. c .. "'") end
+    return value, pos + #num
+  end
+
+  -- parseJSON(text) -> value. A mistake in the text is an error that says which line.
+  function parseJSON(text)
+    if type(text) ~= "string" then error("parseJSON() expects text", 2) end
+    local ok, value, pos = pcall(decode_value, text, 1, 0)
+    if not ok then error(value, 2) end
+    if skip(text, pos) <= #text then error("JSON: extra text after the value", 2) end
+    return value
+  end
+
+  local function quote(s)
+    return '"' .. s:gsub('[%c"\\]', function(c)
+      local short = { ['"'] = '\\"', ["\\"] = "\\\\", ["\n"] = "\\n", ["\r"] = "\\r", ["\t"] = "\\t" }
+      return short[c] or string.format("\\u%04x", c:byte())
+    end) .. '"'
+  end
+  local function encode(v, indent, seen, out)
+    local t = type(v)
+    if t == "nil" then out[#out + 1] = "null"
+    elseif t == "boolean" then out[#out + 1] = tostring(v)
+    elseif t == "number" then
+      if v ~= v or v == math.huge or v == -math.huge then out[#out + 1] = "null"   -- JSON has no NaN or infinity
+      elseif math.type(v) == "integer" then out[#out + 1] = tostring(v)
+      else out[#out + 1] = string.format("%.14g", v) end
+    elseif t == "string" then out[#out + 1] = quote(v)
+    elseif t == "table" then
+      if seen[v] then error("toJSON(): a table contains itself", 0) end
+      seen[v] = true
+      local n = #v
+      local list = true
+      for k in pairs(v) do
+        if math.type(k) ~= "integer" or k < 1 or k > n then list = false break end
+      end
+      local pad, inner = "\n" .. string.rep("  ", indent), "\n" .. string.rep("  ", indent + 1)
+      if list then
+        if n == 0 then out[#out + 1] = "[]" else
+          out[#out + 1] = "["
+          for i = 1, n do
+            out[#out + 1] = (i > 1 and "," or "") .. inner
+            encode(v[i], indent + 1, seen, out)
+          end
+          out[#out + 1] = pad .. "]"
+        end
+      else
+        local keys = {}
+        for k in pairs(v) do keys[#keys + 1] = tostring(k) end
+        table.sort(keys)                      -- the same table always gives the same text
+        local by_name = {}
+        for k, val in pairs(v) do by_name[tostring(k)] = val end
+        out[#out + 1] = "{"
+        for i, k in ipairs(keys) do
+          out[#out + 1] = (i > 1 and "," or "") .. inner .. quote(k) .. ": "
+          encode(by_name[k], indent + 1, seen, out)
+        end
+        out[#out + 1] = pad .. "}"
+      end
+      seen[v] = nil
+    else
+      error("toJSON(): can't write a " .. t, 0)
+    end
+  end
+  function toJSON(value)
+    local out = {}
+    local ok, why = pcall(encode, value, 0, {}, out)
+    if not ok then error(why, 2) end
+    return table.concat(out)
+  end
+
+  function loadJSON(path)
+    local f = io.open(path, "rb")
+    if not f then
+      io.stderr:write("loadJSON: could not open " .. tostring(path) .. "\n")
+      return nil
+    end
+    local text = f:read("a")
+    f:close()
+    text = text:gsub("^\xEF\xBB\xBF", "")
+    local ok, value = pcall(parseJSON, text)
+    if not ok then
+      io.stderr:write("loadJSON: " .. tostring(path) .. ": " .. tostring(value) .. "\n")
+      return nil
+    end
+    return value
+  end
+  function saveJSON(path, value)
+    local text = toJSON(value)
+    local f, why = io.open(path, "w")
+    if not f then
+      io.stderr:write("saveJSON: could not write " .. tostring(path) .. " (" .. tostring(why) .. ")\n")
+      return false
+    end
+    f:write(text, "\n")
+    f:close()
+    return true
+  end
+end
+
 -- ── PVector ───────────────────────────────────────────────────────────────
 -- v = createVector(3, 4)   v:add(w)   v:mag()   local sum = a + b
 -- Methods change the vector and return it, so they chain. The operators

@@ -180,6 +180,14 @@ pub fn blend_mode(mode: i32)  { engine::blend_mode(mode.max(0) as u32) }
 pub fn image_mode(mode: i32)  { engine::image_mode(mode.max(0) as u32) }
 pub fn image_size(id: u64) -> (f32, f32) { (engine::image_width(id), engine::image_height(id)) }
 pub fn set_pixel(x: i32, y: i32, r: f32, g: f32, b: f32) { engine::set_pixel(x, y, r, g, b) }
+pub fn filter(kind: i32, param: f32) { engine::filter_param(kind.max(0) as u32, param) }
+pub fn full_screen() { engine::full_screen() }
+pub fn display_size() -> (f32, f32) { (engine::display_width(), engine::display_height()) }
+pub fn focused() -> bool { engine::focused() }
+pub fn rect_radii(a: f32, b: f32, c: f32, d: f32, tl: f32, tr: f32, br: f32, bl: f32) {
+    let (x, y, w, h) = to_corner(RECT_MODE.load(Ordering::Relaxed), a, b, c, d);
+    engine::rect_radii(x, y, w, h, tl, tr, br, bl)
+}
 pub fn create_graphics(w: u32, h: u32) -> u64 { engine::create_graphics(w, h) }
 pub fn begin_graphics(id: u64) -> bool { engine::begin_graphics(id) }
 pub fn end_graphics() { engine::end_graphics() }

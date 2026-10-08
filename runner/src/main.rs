@@ -328,6 +328,7 @@ fn sync_frame_globals(lua: &Lua) {
         let _ = g.raw_set("keyPressed", kp);
     }
     let _ = g.raw_set("mouseButton", processing::mouse_button());
+    let _ = g.raw_set("focused", processing::focused());
     // arrows, modifiers and the like have no character: key is CODED and the
     // sketch looks at keyCode
     if processing::key_is_coded() {
@@ -563,13 +564,38 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         })?)?;
     }
 
+    // filter(GRAY), filter(INVERT), filter(BLUR, 4), filter(THRESHOLD, 0.5),
+    // filter(POSTERIZE, 4), filter(ERODE), filter(DILATE)
+    g.set("filter", lua.create_function(|_, (kind, param): (i32, Option<f32>)| {
+        processing::filter(kind, param.unwrap_or(f32::NAN)); Ok(())
+    })?)?;
+    for (name, v) in [("BLUR", 11), ("GRAY", 12), ("INVERT", 13), ("OPAQUE", 14),
+                      ("POSTERIZE", 15), ("THRESHOLD", 16), ("ERODE", 17), ("DILATE", 18)] {
+        g.set(name, v as i64)?;
+    }
+    // fullScreen() in setup(): the sketch covers the screen and width/height
+    // become the screen's size
+    g.set("fullScreen", lua.create_function(|lua, ()| {
+        processing::full_screen();
+        let (w, h) = processing::target_size();
+        lua.globals().raw_set("width",  w as i64)?;
+        lua.globals().raw_set("height", h as i64)?;
+        Ok(())
+    })?)?;
+    let (dw, dh) = processing::display_size();
+    g.set("displayWidth",  dw as i64)?;
+    g.set("displayHeight", dh as i64)?;
+    g.set("focused", true)?;
+
     g.set("blendMode", lua.create_function(|_, mode: i32| { processing::blend_mode(mode); Ok(()) })?)?;
 
     // ── Shapes ────────────────────────────────────────────────────────────
-    g.set("rect", lua.create_function(|_, (x,y,w,h,r): (f32,f32,f32,f32,Option<f32>)| {
-        match r {
-            Some(r) if r > 0.0 => processing::rect_rounded(x,y,w,h,r),
-            _                  => processing::rect(x,y,w,h),
+    // rect(x, y, w, h), rect(x, y, w, h, r), rect(x, y, w, h, tl, tr, br, bl)
+    g.set("rect", lua.create_function(|_, (x,y,w,h,r,tr,br,bl): (f32,f32,f32,f32,Option<f32>,Option<f32>,Option<f32>,Option<f32>)| {
+        match (r, tr, br, bl) {
+            (Some(tl), Some(tr), Some(br), Some(bl)) => processing::rect_radii(x,y,w,h,tl,tr,br,bl),
+            (Some(r), ..) if r > 0.0 => processing::rect_rounded(x,y,w,h,r),
+            _                        => processing::rect(x,y,w,h),
         }
         Ok(())
     })?)?;

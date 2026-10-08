@@ -33,6 +33,11 @@ public final class LuaRunner {
     /** Present mode on this screen. Call before {@link #launch()}. */
     public void setPresent(java.awt.Rectangle screen) { presentOn = screen; }
 
+    private volatile java.awt.Rectangle display;
+
+    /** The screen the editor is on. Call before {@link #launch()}. */
+    public void setDisplay(java.awt.Rectangle screen) { display = screen; }
+
     /**
      * @param onProblems called (on the runner thread) with the errors of a run
      *                   that failed; never called for a run that was stopped
@@ -75,6 +80,7 @@ public final class LuaRunner {
         try {
             LuaBuild b = new LuaBuild(sketch, modeFolder);
             b.setPresent(presentOn);
+            b.setDisplay(display);
             build = b;
             if (halted) return;
             List<LuaProblem> problems = b.run();

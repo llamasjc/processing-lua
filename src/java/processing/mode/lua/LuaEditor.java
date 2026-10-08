@@ -237,7 +237,9 @@ public class LuaEditor extends Editor {
                 problems -> SwingUtilities.invokeLater(() -> showRunProblems(problems)),
                 () -> onRunnerFinished(ref[0]));
             ref[0] = thisRunner;
-            if (present) thisRunner.setPresent(screenBounds());
+            java.awt.Rectangle screen = screenBounds();
+            thisRunner.setDisplay(screen);
+            if (present) thisRunner.setPresent(screen);
             runner  = thisRunner;
             try { getToolbar().activateRun(); } catch (Throwable ignored) {}
             thisRunner.launch();
