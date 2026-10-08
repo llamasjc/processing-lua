@@ -75,6 +75,9 @@ public class LuaEditor extends Editor {
         SyntaxDocument doc = getTextArea().getDocument();
         if (doc == null) return;
         if (markers.containsKey(doc)) return;
+        // a query that doesn't load would mean no colors at all: keep the default
+        // keyword colors, and only when the native parser is there to begin with
+        if (!LuaNative.isLoaded() || !TsLuaTokenMarker.available()) return;
 
         TsLuaTokenMarker marker = new TsLuaTokenMarker();
         marker.setLintConsumer(problems -> SwingUtilities.invokeLater(() -> {

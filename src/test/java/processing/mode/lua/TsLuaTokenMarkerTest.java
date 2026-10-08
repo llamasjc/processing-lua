@@ -206,4 +206,22 @@ class TsLuaTokenMarkerTest {
         assertEquals(sb.length(), ids.length);
         assertTrue(ms < 20_000, "20000 lines took " + ms + " ms");
     }
+
+    @Test
+    void veryLongNameListDoesNotOverflowTheStack() throws Exception {
+        // the builtin lists in the .scm files only grow; the regex that reads
+        // them once recursed per character and blew the stack at ~2000
+        StringBuilder names = new StringBuilder();
+        for (int i = 0; i < 4000; i++) names.append("name_number_").append(i).append('|');
+        String scm = "((identifier) @function.builtin\n  (#match? @function.builtin \"^(" + names + "last)$\"))";
+        Throwable[] failure = {null};
+        java.util.Map<?, ?>[] out = {null};
+        Thread t = new Thread(null, () -> {
+            try { out[0] = TsLuaTokenMarker.parseMatchPredicates(scm); } catch (Throwable e) { failure[0] = e; }
+        }, "small-stack", 256 * 1024);
+        t.start();
+        t.join();
+        assertTrue(failure[0] == null, "parsing a long list failed: " + failure[0]);
+        assertEquals(1, out[0].size());
+    }
 }

@@ -286,6 +286,9 @@ pub fn reset_matrix()            { engine::reset_matrix() }
 
 pub fn text(s: &str, x: f32, y: f32) { engine::text(s, x, y) }
 pub fn text_size(sz: f32)            { engine::text_size(sz) }
+pub fn create_font(name: &str, size: f32) -> u64 { engine::create_font(name, size) }
+pub fn text_font(font: u64, size: f32) { engine::text_font_size(font, size) }
+pub fn text_leading(px: f32) { engine::text_leading(px) }
 pub fn text_width(s: &str) -> f32    { engine::text_width(s) }
 pub fn text_ascent() -> f32          { engine::text_ascent() }
 pub fn text_descent() -> f32         { engine::text_descent() }

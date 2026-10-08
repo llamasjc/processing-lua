@@ -696,6 +696,21 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         processing::text_size(sz); Ok(())
     })?)?;
 
+    // createFont("DejaVu Sans", 32) or createFont("MyFont.ttf", 32): a .ttf /
+    // .otf file (also looked for in data/), or the name of an installed font.
+    // Returns 0 when it can't be loaded; text then stays in the built-in font.
+    g.set("createFont", lua.create_function(|_, (name, size): (LuaString, Option<f32>)| {
+        Ok(processing::create_font(&name.to_string_lossy(), size.unwrap_or(0.0)) as i64)
+    })?)?;
+    g.set("loadFont", lua.create_function(|_, name: LuaString| {
+        Ok(processing::create_font(&name.to_string_lossy(), 0.0) as i64)
+    })?)?;
+    // textFont(font) or textFont(font, size); textFont(0) is the built-in font
+    g.set("textFont", lua.create_function(|_, (font, size): (Option<i64>, Option<f32>)| {
+        processing::text_font(font.unwrap_or(0).max(0) as u64, size.unwrap_or(0.0)); Ok(())
+    })?)?;
+    g.set("textLeading", lua.create_function(|_, px: f32| { processing::text_leading(px); Ok(()) })?)?;
+
     g.set("textAlign", lua.create_function(|_, (h, v): (i32, Option<i32>)| {
         processing::text_align(h, v.unwrap_or(processing::BASELINE)); Ok(())
     })?)?;

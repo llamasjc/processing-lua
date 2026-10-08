@@ -13,6 +13,9 @@
 #   -- timeout: 5            seconds before the sketch is stopped (default 20)
 #   -- env: NAME=value       extra environment (repeatable)
 #
+# Tests run in a scratch folder; LUAMODE_TESTS is this folder, for tests that
+# need a file from tests/assets.
+#
 # Needs a display. Without one it re-runs itself under xvfb-run.
 
 set -u
@@ -47,7 +50,7 @@ for t in "$HERE"/*.lua; do
   envs=()
   while IFS= read -r e; do [ -n "$e" ] && envs+=("$e"); done < <(directive "$t" env)
 
-  ( cd "$dir" && env ${envs[@]+"${envs[@]}"} timeout "$secs" "$RUNNER" "$t" >out.txt 2>err.txt )
+  ( cd "$dir" && env LUAMODE_TESTS="$HERE" ${envs[@]+"${envs[@]}"} timeout "$secs" "$RUNNER" "$t" >out.txt 2>err.txt )
   rc=$?
 
   why=""
