@@ -14,7 +14,36 @@ repositories {
 // Jars are found by pattern so this works across versions and layouts:
 //   4.5.x: lib/app/app-<ver>-<hash>.jar, lib/app/resources/core/library/core-<ver>.jar
 //   4.3:   lib/pde.jar,                  core/library/core.jar
-def processingDir = file(System.getenv('PROCESSING_DIR') ?: '/usr/lib/processing')
+def hasJars = { File d ->
+    new File(d, 'lib/pde.jar').isFile() || new File(d, 'core/library/core.jar').isFile() ||
+        (new File(d, 'lib/app').listFiles()?.any { it.name.endsWith('.jar') } ?: false)
+}
+def findProcessing = {
+    def given = System.getenv('PROCESSING_DIR') ?: project.findProperty('processing')
+    if (given) return file(given)
+    def home = System.getProperty('user.home')
+    def tries = ['/usr/lib/processing', '/usr/share/processing', '/opt/processing', '/opt/processing4',
+                 "$home/processing", "$home/processing4", "$home/.local/share/processing",
+                 "$home/.local/lib/processing", '/usr/local/lib/processing'].collect { new File(it) }
+    // Follow the `processing` launcher on PATH back to its install folder.
+    System.getenv('PATH')?.split(File.pathSeparator)?.each { dir ->
+        def launcher = new File(dir, 'processing')
+        if (launcher.exists()) {
+            def d = launcher.canonicalFile.parentFile
+            for (int i = 0; i < 3 && d != null; i++) { tries << d; d = d.parentFile }
+        }
+    }
+    ['/opt', home].each { root ->
+        new File(root).listFiles()?.findAll { it.isDirectory() && it.name.toLowerCase().startsWith('processing') }?.each { tries << it }
+    }
+    tries.find { it.isDirectory() && hasJars(it) } ?: new File('/usr/lib/processing')
+}
+def processingDir = findProcessing()
+if (!hasJars(processingDir)) {
+    throw new GradleException("Processing jars not found in ${processingDir}. " +
+        "Run with PROCESSING_DIR=/path/to/processing (the folder that has lib/ in it).")
+}
+println "Processing: ${processingDir}"
 def processingJars = fileTree(processingDir) {
     // every jar of the app: 4.5.x split classes like processing.utils.SketchException
     // out of app-*.jar, and the tests need them at runtime
