@@ -355,3 +355,24 @@ pub fn image_sized(id: u64, x: f32, y: f32, w: f32, h: f32) { engine::image_size
 
 pub fn save_frame(name: &str) { engine::save_frame(name) }
 pub fn get_pixel(x: i32, y: i32) -> (u8, u8, u8) { engine::get_pixel(x, y) }
+
+// ── Image editing (colors as [r, g, b, a] in 0..255) ─────────────────────
+
+fn to_engine(c: [f32; 4]) -> engine::Color {
+    engine::Color::from_rgba(c[0] / 255.0, c[1] / 255.0, c[2] / 255.0, c[3] / 255.0)
+}
+fn from_engine(c: engine::Color) -> [f32; 4] { [c.r * 255.0, c.g * 255.0, c.b * 255.0, c.a * 255.0] }
+pub fn create_image(w: u32, h: u32) -> u64 { engine::create_image(w, h) }
+pub fn image_get(id: u64, x: i32, y: i32) -> [f32; 4] { from_engine(engine::image_get(id, x, y)) }
+pub fn image_set(id: u64, x: i32, y: i32, c: [f32; 4]) { engine::image_set(id, x, y, to_engine(c)) }
+pub fn image_pixels(id: u64) -> Vec<[f32; 4]> { engine::image_pixels(id).into_iter().map(from_engine).collect() }
+pub fn image_set_pixels(id: u64, px: &[[f32; 4]]) {
+    let v: Vec<engine::Color> = px.iter().map(|c| to_engine(*c)).collect();
+    engine::image_set_pixels(id, &v)
+}
+pub fn image_crop(id: u64, x: i32, y: i32, w: u32, h: u32) -> u64 { engine::image_crop(id, x, y, w, h) }
+pub fn image_copy(id: u64) -> u64 { engine::image_copy(id) }
+pub fn image_resize(id: u64, w: u32, h: u32) { engine::image_resize(id, w, h) }
+pub fn image_mask(id: u64, mask: u64) -> bool { engine::image_mask(id, mask) }
+pub fn save_image(id: u64, path: &str) -> bool { engine::save_image(id, path) }
+pub fn get_region(x: i32, y: i32, w: u32, h: u32) -> u64 { engine::get_region(x, y, w, h) }

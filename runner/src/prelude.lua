@@ -128,6 +128,34 @@ function nf(n, left, right)
   if left and #whole < left then s = string.rep("0", left - #whole) .. s end
   return (neg and "-" or "") .. s
 end
+-- nfc(1234567) -> "1,234,567"; nfc(1234.5, 2) -> "1,234.50"
+function nfc(n, right)
+  if type(n) ~= "number" then error("nfc() expects a number", 2) end
+  local s = right and string.format("%." .. right .. "f", math.abs(n)) or tostring(math.floor(math.abs(n) + 0.5))
+  local whole, rest = s:match("^(%d+)(.*)$")
+  whole = whole:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+  return (n < 0 and "-" or "") .. whole .. rest
+end
+-- nfs: like nf, with a space where a minus would go, so columns line up
+function nfs(n, left, right)
+  local s = nf(n, left, right)
+  if n < 0 then return s end
+  return " " .. s
+end
+-- nfp: like nf, with a + on positive numbers
+function nfp(n, left, right)
+  local s = nf(n, left, right)
+  if n < 0 then return s end
+  return "+" .. s
+end
+-- splitTokens("a, b  c", ", ") -> {"a", "b", "c"}: split on any of the characters, no empty pieces
+function splitTokens(s, delims)
+  delims = delims or " \t\n\r\f"
+  local out = {}
+  local class = "[^" .. delims:gsub("[%]%^%-%%]", "%%%0") .. "]+"
+  for piece in tostring(s):gmatch(class) do out[#out + 1] = piece end
+  return out
+end
 -- loadStrings("notes.txt") -> a list of lines, or nil if the file can't be read
 function loadStrings(path)
   local f = io.open(path, "r")

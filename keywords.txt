@@ -205,3 +205,16 @@ frameCount	LITERAL1
 focused	LITERAL1
 displayWidth	LITERAL1
 displayHeight	LITERAL1
+createImage	KEYWORD2
+imageGet	KEYWORD2
+imageSet	KEYWORD2
+imagePixels	KEYWORD2
+imageSetPixels	KEYWORD2
+imageCopy	KEYWORD2
+imageResize	KEYWORD2
+imageMask	KEYWORD2
+saveImage	KEYWORD2
+nfc	KEYWORD2
+nfs	KEYWORD2
+nfp	KEYWORD2
+splitTokens	KEYWORD2

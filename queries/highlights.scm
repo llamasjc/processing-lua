@@ -64,7 +64,7 @@
 ;; -- Processing drawing API - @function.builtin ----------------------------
 ((identifier) @function.builtin
   (#match? @function.builtin
-    "^(size|background|fill|noFill|stroke|noStroke|strokeWeight|strokeCap|strokeJoin|rect|square|ellipse|circle|arc|line|point|triangle|quad|bezier|curve|rectMode|ellipseMode|beginShape|endShape|vertex|bezierVertex|quadraticVertex|curveVertex|image|loadImage|tint|noTint|get|saveFrame|text|textSize|textAlign|textWidth|textAscent|textDescent|smooth|noSmooth)$"))
+    "^(size|background|fill|noFill|stroke|noStroke|strokeWeight|strokeCap|strokeJoin|rect|square|ellipse|circle|arc|line|point|triangle|quad|bezier|curve|rectMode|ellipseMode|beginShape|endShape|vertex|bezierVertex|quadraticVertex|curveVertex|image|loadImage|createImage|imageGet|imageSet|imagePixels|imageSetPixels|imageCopy|imageResize|imageMask|saveImage|tint|noTint|get|saveFrame|text|textSize|textAlign|textWidth|textAscent|textDescent|smooth|noSmooth)$"))
 
 ;; -- Processing transform / stack - @function.builtin ---------------------
 ((identifier) @function.builtin
@@ -79,7 +79,7 @@
 ;; -- Processing math - @function.builtin ----------------------------------
 ((identifier) @function.builtin
   (#match? @function.builtin
-    "^(map|lerp|constrain|dist|mag|norm|sq|sqrt|pow|exp|log|abs|ceil|floor|round|int|str|min|max|sin|cos|tan|asin|acos|atan|atan2|degrees|radians|noise|noiseDetail|noiseSeed|random|randomSeed|randomGaussian)$"))
+    "^(nf|nfc|nfs|nfp|splitTokens|map|lerp|constrain|dist|mag|norm|sq|sqrt|pow|exp|log|abs|ceil|floor|round|int|str|min|max|sin|cos|tan|asin|acos|atan|atan2|degrees|radians|noise|noiseDetail|noiseSeed|random|randomSeed|randomGaussian)$"))
 
 ;; -- Processing time / control - @function.builtin ------------------------
 ((identifier) @function.builtin

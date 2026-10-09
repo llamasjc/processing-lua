@@ -960,9 +960,58 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     g.set("noTint", lua.create_function(|_, ()| { processing::no_tint(); Ok(()) })?)?;
 
     // get(x, y) returns the pixel's red, green and blue (0..255)
-    g.set("get", lua.create_function(|_, (x, y): (f64, f64)| {
+    g.set("get", lua.create_function(|_, (x, y, w, h): (f64, f64, Option<f64>, Option<f64>)| {
+        // get(x, y, w, h): a piece of the canvas as a new image
+        if let (Some(w), Some(h)) = (w, h) {
+            let id = processing::get_region(x.floor() as i32, y.floor() as i32, w.max(0.0) as u32, h.max(0.0) as u32);
+            return Ok(LuaMultiValue::from_vec(vec![LuaValue::Integer(id as i64)]));
+        }
         let (r, g, b) = processing::get_pixel(x.floor() as i32, y.floor() as i32);
-        Ok((r as i64, g as i64, b as i64))
+        Ok(LuaMultiValue::from_vec(vec![LuaValue::Integer(r as i64), LuaValue::Integer(g as i64), LuaValue::Integer(b as i64)]))
+    })?)?;
+
+    // Image editing. Images are the numbers loadImage() and createImage() return.
+    g.set("createImage", lua.create_function(|_, (w, h): (f64, f64)| {
+        Ok(processing::create_image(w.max(0.0) as u32, h.max(0.0) as u32) as i64)
+    })?)?;
+    // imageGet(img, x, y) -> color; imageGet(img, x, y, w, h) -> a new image
+    g.set("imageGet", lua.create_function(|_, (id, x, y, w, h): (i64, f64, f64, Option<f64>, Option<f64>)| {
+        let (x, y) = (x.floor() as i32, y.floor() as i32);
+        if let (Some(w), Some(h)) = (w, h) {
+            return Ok(processing::image_crop(id as u64, x, y, w.max(0.0) as u32, h.max(0.0) as u32) as i64);
+        }
+        Ok(pack_color(processing::image_get(id as u64, x, y)))
+    })?)?;
+    g.set("imageSet", lua.create_function(|_, (id, x, y, c): (i64, f64, f64, LuaValue)| {
+        processing::image_set(id as u64, x.floor() as i32, y.floor() as i32, color_arg(&c));
+        Ok(())
+    })?)?;
+    // imagePixels(img) -> a list of colors, row by row, from 1;
+    // imageSetPixels(img, list) writes them back.
+    g.set("imagePixels", lua.create_function(|lua, id: i64| {
+        let px = processing::image_pixels(id as u64);
+        let t = lua.create_table_with_capacity(px.len(), 0)?;
+        for (i, c) in px.iter().enumerate() { t.raw_set(i as i64 + 1, pack_color(*c))?; }
+        Ok(t)
+    })?)?;
+    g.set("imageSetPixels", lua.create_function(|_, (id, t): (i64, LuaTable)| {
+        let mut px = Vec::with_capacity(t.raw_len());
+        // Whole numbers here are always colors, so transparent pixels survive the round trip.
+        for v in t.sequence_values::<LuaValue>() {
+            let v = v?;
+            px.push(match v { LuaValue::Integer(n) => unpack_packed(n), other => color_arg(&other) });
+        }
+        processing::image_set_pixels(id as u64, &px);
+        Ok(())
+    })?)?;
+    g.set("imageCopy", lua.create_function(|_, id: i64| Ok(processing::image_copy(id as u64) as i64))?)?;
+    g.set("imageResize", lua.create_function(|_, (id, w, h): (i64, f64, Option<f64>)| {
+        processing::image_resize(id as u64, w.max(0.0) as u32, h.unwrap_or(0.0).max(0.0) as u32);
+        Ok(())
+    })?)?;
+    g.set("imageMask", lua.create_function(|_, (id, m): (i64, i64)| Ok(processing::image_mask(id as u64, m as u64)))?)?;
+    g.set("saveImage", lua.create_function(|_, (id, path): (i64, LuaString)| {
+        Ok(processing::save_image(id as u64, &path.to_string_lossy()))
     })?)?;
 
     // loadPixels() fills the global `pixels` with one color() value per
@@ -1059,7 +1108,10 @@ fn unpack_packed(n: i64) -> [f32; 4] {
 }
 fn pack_color(c: [f32; 4]) -> i64 {
     let ch = |v: f32| (v.round().clamp(0.0, 255.0)) as i64;
-    (ch(c[3]) << 24) | (ch(c[0]) << 16) | (ch(c[1]) << 8) | ch(c[2])
+    let n = (ch(c[3]) << 24) | (ch(c[0]) << 16) | (ch(c[1]) << 8) | ch(c[2]);
+    // Fully transparent colors would look like small plain numbers (grays);
+    // bit 32 marks them as colors. unpack_packed drops it again.
+    if ch(c[3]) == 0 { n | (1 << 32) } else { n }
 }
 /// One value as a color: a packed color, or a gray in the current colorMode.
 fn color_arg(v: &LuaValue) -> [f32; 4] {
