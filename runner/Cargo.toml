@@ -2,6 +2,7 @@
 name    = "luamode-runner"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.82"
 
 # The runner is a thin host: it owns the event loop (via the processing App
 # builder) and exposes every Processing function to Lua via mlua.
