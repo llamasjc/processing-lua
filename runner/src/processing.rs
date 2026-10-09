@@ -323,6 +323,7 @@ pub fn reset_matrix()            { engine::reset_matrix() }
 // ── Text ──────────────────────────────────────────────────────────────────
 
 pub fn text(s: &str, x: f32, y: f32) { engine::text(s, x, y) }
+pub fn text_box(s: &str, x: f32, y: f32, w: f32, h: f32) { engine::text_box(s, x, y, w, h) }
 pub fn text_size(sz: f32)            { engine::text_size(sz) }
 pub fn create_font(name: &str, size: f32) -> u64 { engine::create_font(name, size) }
 pub fn text_font(font: u64, size: f32) { engine::text_font_size(font, size) }

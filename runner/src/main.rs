@@ -710,12 +710,17 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     // ── Text ──────────────────────────────────────────────────────────────
     // text(anything, x, y): numbers, booleans and nil are shown the way
     // print() would show them
-    g.set("text", lua.create_function(|lua, (v, x, y): (LuaValue, f32, f32)| {
+    // text(s, x, y, w, h): wrapped inside the box, lines that don't fit left out
+    g.set("text", lua.create_function(|lua, (v, x, y, w, h): (LuaValue, f32, f32, Option<f32>, Option<f32>)| {
         let s = match &v {
             LuaValue::String(s) => s.to_string_lossy().into_owned(),
             other => lua.globals().get::<_, LuaFunction>("tostring")?.call::<_, String>(other.clone())?,
         };
-        processing::text(&s, x, y); Ok(())
+        match (w, h) {
+            (Some(w), Some(h)) => processing::text_box(&s, x, y, w, h),
+            _ => processing::text(&s, x, y),
+        }
+        Ok(())
     })?)?;
 
     g.set("textSize", lua.create_function(|_, sz: f32| {
