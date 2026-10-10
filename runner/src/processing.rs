@@ -327,7 +327,40 @@ pub fn push_matrix()  { engine::push_matrix() }
 pub fn pop_matrix()   { engine::pop_matrix() }
 pub fn push_style()   { engine::push_style() }
 pub fn pop_style()    { engine::pop_style() }
+#[allow(dead_code)]
 pub fn translate(x: f32, y: f32) { engine::translate(x, y) }
+pub fn translate3(x: f32, y: f32, z: f32) { engine::translate_3d(x, y, z) }
+pub fn scale3(x: f32, y: f32, z: f32) { engine::scale_3d(x, y, z) }
+/// The 3D calls, by their Lua name. Some(value) for screenX / screenY.
+pub fn three(name: &str, a: &[f32]) -> Result<Option<f32>, String> {
+    let need = |n: usize| if a.len() >= n { Ok(()) } else { Err(format!("expects {n} numbers")) };
+    match (name, a.len()) {
+        ("rotateX", _) => { need(1)?; engine::rotate_x(a[0]) }
+        ("rotateY", _) => { need(1)?; engine::rotate_y(a[0]) }
+        ("box", 1) | ("box", 2) => engine::box_cube(a[0]),
+        ("box", _) => { need(1)?; engine::box_3d(a[0], a[1], a[2]) }
+        ("sphere", _) => { need(1)?; engine::sphere(a[0]) }
+        ("sphereDetail", 1) => engine::sphere_detail(a[0]),
+        ("sphereDetail", _) => { need(1)?; engine::sphere_detail_uv(a[0], a[1]) }
+        ("camera", 0) => engine::camera(),
+        ("camera", _) => { need(9)?; engine::camera_look(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8]) }
+        ("perspective", 0) => engine::perspective_default(),
+        ("perspective", _) => { need(4)?; engine::perspective(a[0], a[1], a[2], a[3]) }
+        ("ortho", _) => engine::ortho(),
+        ("lights", _) => engine::lights(),
+        ("noLights", _) => engine::no_lights(),
+        ("ambientLight", 1) => engine::ambient_light(a[0], a[0], a[0]),
+        ("ambientLight", _) => { need(3)?; engine::ambient_light(a[0], a[1], a[2]) }
+        ("directionalLight", _) => { need(6)?; engine::directional_light(a[0], a[1], a[2], a[3], a[4], a[5]) }
+        ("pointLight", _) => { need(6)?; engine::point_light(a[0], a[1], a[2], a[3], a[4], a[5]) }
+        ("screenX", _) => { need(2)?; return Ok(Some(engine::screen_x(a[0], a[1], a.get(2).copied().unwrap_or(0.0)))) }
+        ("screenY", _) => { need(2)?; return Ok(Some(engine::screen_y(a[0], a[1], a.get(2).copied().unwrap_or(0.0)))) }
+        _ => {}
+    }
+    Ok(None)
+}
+pub fn line3(x1: f32, y1: f32, z1: f32, x2: f32, y2: f32, z2: f32) { engine::line_3d(x1, y1, z1, x2, y2, z2) }
+pub fn point3(x: f32, y: f32, z: f32) { engine::point_3d(x, y, z) }
 pub fn rotate(a: f32)            { engine::rotate(a) }
 pub fn scale(x: f32, y: f32)     { engine::scale_xy(x, y) }
 pub fn scale_uniform(s: f32)     { engine::scale(s) }

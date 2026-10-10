@@ -615,12 +615,18 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         processing::circle(x,y,d); Ok(())
     })?)?;
 
-    g.set("line", lua.create_function(|_, (x1,y1,x2,y2): (f32,f32,f32,f32)| {
-        processing::line(x1,y1,x2,y2); Ok(())
+    // line(x1, y1, x2, y2), or line(x1, y1, z1, x2, y2, z2) in 3D
+    g.set("line", lua.create_function(|_, (a, b, c, d, e, f): (f32, f32, f32, f32, Option<f32>, Option<f32>)| {
+        match (e, f) {
+            (Some(e), Some(f)) => processing::line3(a, b, c, d, e, f),
+            _ => processing::line(a, b, c, d),
+        }
+        Ok(())
     })?)?;
 
-    g.set("point", lua.create_function(|_, (x,y): (f32,f32)| {
-        processing::point(x,y); Ok(())
+    g.set("point", lua.create_function(|_, (x, y, z): (f32, f32, Option<f32>)| {
+        match z { Some(z) => processing::point3(x, y, z), None => processing::point(x, y) }
+        Ok(())
     })?)?;
 
     g.set("triangle", lua.create_function(|_, (x1,y1,x2,y2,x3,y3): (f32,f32,f32,f32,f32,f32)| {
@@ -677,8 +683,8 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     g.set("pushStyle",  lua.create_function(|_, ()| { processing::push_style();  Ok(()) })?)?;
     g.set("popStyle",   lua.create_function(|_, ()| { processing::pop_style();   Ok(()) })?)?;
 
-    g.set("translate", lua.create_function(|_, (x,y): (f32,f32)| {
-        processing::translate(x,y); Ok(())
+    g.set("translate", lua.create_function(|_, (x, y, z): (f32, f32, Option<f32>)| {
+        processing::translate3(x, y, z.unwrap_or(0.0)); Ok(())
     })?)?;
 
     g.set("rotate", lua.create_function(|_, angle: f32| {
@@ -692,11 +698,37 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         match vals.len() {
             0 => return Err(LuaError::RuntimeError("scale() expects one or two numbers".into())),
             1 => processing::scale_uniform(vals[0]),
-            _ => processing::scale(vals[0], vals[1]),
+            2 => processing::scale(vals[0], vals[1]),
+            _ => processing::scale3(vals[0], vals[1], vals[2]),
         }
         Ok(())
     })?)?;
 
+    // ── 3D ───────────────────────────────────────────────────────────────
+    // box, sphere, a camera, a depth buffer and lights. translate, rotate,
+    // scale, pushMatrix and popMatrix move 3D shapes too.
+    g.set("P2D", 2_i64)?;
+    g.set("P3D", 3_i64)?;
+    g.set("rotateX", lua.create_function(|_, a: f32| { let _ = processing::three("rotateX", &[a]); Ok(()) })?)?;
+    g.set("rotateY", lua.create_function(|_, a: f32| { let _ = processing::three("rotateY", &[a]); Ok(()) })?)?;
+    g.set("rotateZ", lua.create_function(|_, a: f32| { processing::rotate(a); Ok(()) })?)?;
+    for name in ["box", "sphere", "sphereDetail", "camera", "perspective", "ortho", "lights", "noLights",
+                 "ambientLight", "directionalLight", "pointLight", "screenX", "screenY"] {
+        g.set(name, lua.create_function(move |_, args: LuaMultiValue| {
+            let mut v = Vec::with_capacity(args.len());
+            for a in args.iter() {
+                match a.to_num() {
+                    Some(n) => v.push(n),
+                    None => return Err(LuaError::RuntimeError(format!("{name}() expects numbers"))),
+                }
+            }
+            match processing::three(name, &v) {
+                Ok(r) => Ok(r.map(|x| x as f64)),
+                Err(e) => Err(LuaError::RuntimeError(format!("{name}(): {e}"))),
+            }
+        })?)?;
+    }
+    // line and point take a z too in 3D: line(x1, y1, z1, x2, y2, z2)
     g.set("shearX", lua.create_function(|_, a: f32| { processing::shear_x(a); Ok(()) })?)?;
     g.set("shearY", lua.create_function(|_, a: f32| { processing::shear_y(a); Ok(()) })?)?;
     g.set("applyMatrix", lua.create_function(|_, (a, b, c, d, e, f): (f32, f32, f32, f32, f32, f32)| {

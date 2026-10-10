@@ -69,7 +69,7 @@
 ;; -- Processing transform / stack - @function.builtin ---------------------
 ((identifier) @function.builtin
   (#match? @function.builtin
-    "^(push|pop|pushMatrix|popMatrix|pushStyle|popStyle|translate|rotate|scale|resetMatrix)$"))
+    "^(rotateX|rotateY|rotateZ|box|sphere|sphereDetail|camera|perspective|ortho|lights|noLights|ambientLight|directionalLight|pointLight|screenX|screenY|push|pop|pushMatrix|popMatrix|pushStyle|popStyle|translate|rotate|scale|resetMatrix)$"))
 
 ;; -- Processing color - @function.builtin ---------------------------------
 ((identifier) @function.builtin
