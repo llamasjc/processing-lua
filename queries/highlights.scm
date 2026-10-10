@@ -84,7 +84,7 @@
 ;; -- Processing time / control - @function.builtin ------------------------
 ((identifier) @function.builtin
   (#match? @function.builtin
-    "^(IntList|FloatList|StringList|IntDict|FloatDict|StringDict|millis|delay|frameRate|setFrameRate|loop|noLoop|redraw|exit|cursor|noCursor|windowTitle|windowResizable|shearX|shearY|applyMatrix|blendMode|imageMode|imageWidth|imageHeight|set|color|red|green|blue|alpha|hue|saturation|brightness|createVector|bezierPoint|bezierTangent|curvePoint|curveTangent|year|month|day|hour|minute|second|trim|join|split|nf|loadStrings|saveStrings|save|loadPixels|updatePixels|createGraphics|clear|createFont|loadFont|textFont|textLeading|filter|fullScreen|loadShape|createShape|shape|loadSound|SinOsc|SqrOsc|SawOsc|TriOsc|WhiteNoise|loadTable|saveTable|createTable|hex|unhex|binary|unbinary|printArray|parseJSON|toJSON|loadJSON|saveJSON|print|println)$"))
+    "^(AudioIn|Amplitude|FFT|Waveform|IntList|FloatList|StringList|IntDict|FloatDict|StringDict|millis|delay|frameRate|setFrameRate|loop|noLoop|redraw|exit|cursor|noCursor|windowTitle|windowResizable|shearX|shearY|applyMatrix|blendMode|imageMode|imageWidth|imageHeight|set|color|red|green|blue|alpha|hue|saturation|brightness|createVector|bezierPoint|bezierTangent|curvePoint|curveTangent|year|month|day|hour|minute|second|trim|join|split|nf|loadStrings|saveStrings|save|loadPixels|updatePixels|createGraphics|clear|createFont|loadFont|textFont|textLeading|filter|fullScreen|loadShape|createShape|shape|loadSound|SinOsc|SqrOsc|SawOsc|TriOsc|WhiteNoise|loadTable|saveTable|createTable|hex|unhex|binary|unbinary|printArray|parseJSON|toJSON|loadJSON|saveJSON|print|println)$"))
 
 ;; -- Processing environment globals - @variable.builtin -------------------
 ((identifier) @variable.builtin

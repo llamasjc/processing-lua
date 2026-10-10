@@ -213,6 +213,19 @@ pub fn sound(id: u64, what: &str, v: f32) -> f32 {
     }
     0.0
 }
+/// Analysis of the microphone (source 0) or a playing sound file (its id).
+pub fn analyze(source: u64, what: &str, n: usize) -> Vec<f32> {
+    match (source, what) {
+        (0, "level") => vec![engine::mic_level()],
+        (0, "spectrum") => engine::mic_spectrum(n),
+        (0, "waveform") => engine::mic_waveform(n),
+        (id, "level") => vec![engine::sound_level(id)],
+        (id, "spectrum") => engine::sound_spectrum(id, n),
+        (id, "waveform") => engine::sound_waveform(id, n),
+        _ => Vec::new(),
+    }
+}
+pub fn mic(on: bool) -> bool { if on { engine::mic_start() } else { engine::mic_stop(); true } }
 pub fn load_shape(path: &str) -> u64 { engine::load_shape(path) }
 pub fn shape_size(id: u64) -> (f32, f32) { (engine::shape_width(id), engine::shape_height(id)) }
 pub fn shape(id: u64, x: f32, y: f32) { engine::shape(id, x, y) }

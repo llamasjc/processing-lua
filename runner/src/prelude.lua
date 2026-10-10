@@ -941,8 +941,8 @@ end
 -- tone:freq(440)  tone:amp(0.3)  tone:pan(0)  tone:play()  tone:stop()
 -- An oscillator is silent until play(). Make sounds once, in setup().
 do
-  local load, osc, ctl = __loadSound, __oscillator, __sound
-  __loadSound, __oscillator, __sound = nil, nil, nil
+  local load, osc, ctl, analyze, mic = __loadSound, __oscillator, __sound, __analyze, __mic
+  __loadSound, __oscillator, __sound, __analyze, __mic = nil, nil, nil, nil, nil
   local Sound, Osc = {}, {}
   Sound.__index, Osc.__index = Sound, Osc
 
@@ -987,6 +987,53 @@ do
   end
   SinOsc, SqrOsc, SawOsc, TriOsc = maker("sin", "SinOsc"), maker("sqr", "SqrOsc"), maker("saw", "SawOsc"), maker("tri", "TriOsc")
   WhiteNoise = maker("noise", "WhiteNoise")
+
+  -- How loud a playing sound is right now (0..1), and its spectrum / waveform.
+  function Sound:level() return analyze(self.id, "level") end
+
+  -- ── Listening ───────────────────────────────────────────────────────────
+  -- local mic = AudioIn()  mic:start()           the default microphone
+  -- local amp = Amplitude()  amp:input(mic)       amp:analyze() -> 0..1
+  -- local fft = FFT(64)      fft:input(mic)       fft:analyze() -> 64 values, low to high, about 0..1
+  -- local wave = Waveform(256)  wave:input(mic)   wave:analyze() -> 256 samples, -1..1
+  -- input() also takes a sound from loadSound(), to follow it while it plays.
+  -- analyze() fills .spectrum (FFT) or .data (Waveform) too, like Processing.
+  local AudioIn = {}
+  AudioIn.__index = AudioIn
+  AudioIn.__tostring = function() return "microphone" end
+  function AudioIn:start()
+    if not mic(true) then io.stderr:write("AudioIn: no microphone could be opened\n") end
+    return self
+  end
+  function AudioIn:stop() mic(false) return self end
+  function AudioIn:play() return self:start() end
+  _G.AudioIn = function() return setmetatable({ id = 0 }, AudioIn) end
+
+  local function source(x, who)
+    local mt = getmetatable(x)
+    if mt == AudioIn then return 0 end
+    if mt == Sound then return x.id end
+    error(who .. ":input() expects AudioIn() or a sound from loadSound()", 3)
+  end
+  local function analyzer(name, what, default, field)
+    local A = {}
+    A.__index = A
+    A.__tostring = function() return name end
+    function A:input(x) self.src = source(x, name) return self end
+    function A:analyze()
+      if self.src == nil then error(name .. ":analyze() needs input() first", 2) end
+      local v = analyze(self.src, what, self.n)
+      if field then self[field] = v end
+      return v
+    end
+    return function(n)
+      if n ~= nil and (type(n) ~= "number" or n < 1) then error(name .. "() expects a count of 1 or more", 2) end
+      return setmetatable({ n = math.floor(n or default) }, A)
+    end
+  end
+  Amplitude = analyzer("Amplitude", "level", 1, nil)
+  FFT = analyzer("FFT", "spectrum", 512, "spectrum")
+  Waveform = analyzer("Waveform", "waveform", 512, "data")
 end
 
 

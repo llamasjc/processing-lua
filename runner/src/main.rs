@@ -889,6 +889,17 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         Ok(processing::load_sound(&path.to_string_lossy()) as i64)
     })?)?;
     g.set("__oscillator", lua.create_function(|_, shape: String| Ok(processing::oscillator(&shape) as i64))?)?;
+    // Analysis and the microphone: prelude.lua wraps these into AudioIn,
+    // Amplitude, FFT and Waveform
+    g.set("__analyze", lua.create_function(|lua, (src, what, n): (i64, String, Option<i64>)| {
+        let n = n.unwrap_or(512).clamp(1, 32768) as usize;
+        let v = processing::analyze(src.max(0) as u64, &what, n);
+        if what == "level" { return Ok(LuaValue::Number(v.first().copied().unwrap_or(0.0) as f64)); }
+        let t = lua.create_table_with_capacity(v.len(), 0)?;
+        for (i, x) in v.iter().enumerate() { t.raw_set(i as i64 + 1, *x as f64)?; }
+        Ok(LuaValue::Table(t))
+    })?)?;
+    g.set("__mic", lua.create_function(|_, on: bool| Ok(processing::mic(on)))?)?;
     g.set("__sound", lua.create_function(|_, (id, what, v): (i64, String, Option<LuaValue>)| {
         let v = match v { Some(v) => num(&v, &what)? as f32, None => 0.0 };
         Ok(processing::sound(id.max(0) as u64, &what, v) as f64)
