@@ -775,6 +775,79 @@ do
       if i < self.count then return setmetatable({ table = self, index = i }, Row) end
     end
   end
+  -- removeRow(i): the rows after it move up one
+  function Table:removeRow(i)
+    if self.data[i] == nil then error("row " .. tostring(i) .. " is outside the table", 2) end
+    for r = i, self.count - 2 do self.data[r] = self.data[r + 1] end
+    self.data[self.count - 1] = nil
+    self.count = self.count - 1
+  end
+  function Table:clearRows() self.data = {} self.count = 0 end
+  -- findRow("Pep", "name") -> the first matching row, or nil
+  function Table:findRow(value, col)
+    local c = column(self, col)
+    value = tostring(value)
+    for i = 0, self.count - 1 do
+      local v = self.data[i][c]
+      if v ~= nil and tostring(v) == value then return setmetatable({ table = self, index = i }, Row) end
+    end
+    return nil
+  end
+  -- findRows("red", "color") -> a list of every matching row
+  function Table:findRows(value, col)
+    local c = column(self, col)
+    value = tostring(value)
+    local out = {}
+    for i = 0, self.count - 1 do
+      local v = self.data[i][c]
+      if v ~= nil and tostring(v) == value then out[#out + 1] = setmetatable({ table = self, index = i }, Row) end
+    end
+    return out
+  end
+  -- every value in one column, as text / whole numbers / numbers
+  function Table:getStringColumn(col)
+    local c, out = column(self, col), {}
+    for i = 0, self.count - 1 do local v = self.data[i][c] out[i + 1] = v == nil and "" or tostring(v) end
+    return out
+  end
+  function Table:getFloatColumn(col)
+    local out = self:getStringColumn(col)
+    for i, v in ipairs(out) do out[i] = tonumber(v) or 0 end
+    return out
+  end
+  function Table:getIntColumn(col)
+    local out = self:getFloatColumn(col)
+    for i, v in ipairs(out) do out[i] = v >= 0 and math.floor(v) or math.ceil(v) end
+    return out
+  end
+  -- sort("score"): by number if every cell is one, else as text. sortReverse for high to low.
+  local function sortBy(t, col, reverse)
+    local c = column(t, col)
+    local rows, numeric = {}, true
+    for i = 0, t.count - 1 do
+      rows[i + 1] = t.data[i]
+      if tonumber(t.data[i][c]) == nil then numeric = false end
+    end
+    local key = numeric and function(r) return tonumber(r[c]) end
+                         or function(r) return r[c] == nil and "" or tostring(r[c]) end
+    -- stable: equal keys keep their order
+    for i, r in ipairs(rows) do r.__order = i end
+    table.sort(rows, function(a, b)
+      local ka, kb = key(a), key(b)
+      if ka == kb then return a.__order < b.__order end
+      if reverse then return ka > kb end
+      return ka < kb
+    end)
+    for i, r in ipairs(rows) do r.__order = nil t.data[i - 1] = r end
+  end
+  function Table:sort(col) sortBy(self, col, false) end
+  function Table:sortReverse(col) sortBy(self, col, true) end
+  -- trim(): spaces off every cell
+  function Table:trim()
+    for i = 0, self.count - 1 do
+      for c, v in pairs(self.data[i]) do if type(v) == "string" then self.data[i][c] = v:match("^%s*(.-)%s*$") end end
+    end
+  end
   function Row:getString(col) return self.table:getString(self.index, col) end
   function Row:getInt(col) return self.table:getInt(self.index, col) end
   function Row:getFloat(col) return self.table:getFloat(self.index, col) end
@@ -914,4 +987,205 @@ do
   end
   SinOsc, SqrOsc, SawOsc, TriOsc = maker("sin", "SinOsc"), maker("sqr", "SqrOsc"), maker("saw", "SawOsc"), maker("tri", "TriOsc")
   WhiteNoise = maker("noise", "WhiteNoise")
+end
+
+
+-- ── IntList / FloatList / StringList, IntDict / FloatDict / StringDict ─────
+-- Processing's list and dictionary helpers. Indexes count from 0, like
+-- Processing: list:get(0) is the first value.
+--   local l = IntList(3, 1, 2)   l:append(5)   l:sort()   print(l:get(0), l:size())
+--   local d = IntDict()          d:increment("apples")    d:sortValuesReverse()
+do
+  local function makeList(kind, convert)
+    local L = {}
+    L.__index = L
+    L.__name = kind
+    L.__len = function(self) return #self.v end
+    L.__tostring = function(self)
+      local parts = {}
+      for i, x in ipairs(self.v) do parts[i] = tostring(x) end
+      return kind .. " size=" .. #self.v .. " [ " .. table.concat(parts, ", ") .. " ]"
+    end
+    local function idx(self, i, level)
+      if type(i) ~= "number" or i < 0 or i >= #self.v or i ~= math.floor(i) then
+        error(kind .. ": index " .. tostring(i) .. " is outside the list (size " .. #self.v .. ")", level or 3)
+      end
+      return i + 1
+    end
+    local function new(...)
+      local self = setmetatable({ v = {} }, L)
+      local args = { ... }
+      if #args == 1 and type(args[1]) == "table" and getmetatable(args[1]) == nil then args = args[1] end
+      if #args == 1 and getmetatable(args[1]) == L then args = args[1].v end
+      for i, x in ipairs(args) do self.v[i] = convert(x) end
+      return self
+    end
+    function L:size() return #self.v end
+    function L:get(i) return self.v[idx(self, i)] end
+    function L:set(i, x)
+      if i == #self.v then self.v[i + 1] = convert(x) return end -- set at the end appends
+      self.v[idx(self, i)] = convert(x)
+    end
+    function L:append(x)
+      if type(x) == "table" then
+        local src = getmetatable(x) and x.v or x
+        for _, y in ipairs(src) do self.v[#self.v + 1] = convert(y) end
+      else self.v[#self.v + 1] = convert(x) end
+    end
+    function L:push(x) self:append(x) end
+    function L:insert(i, x)
+      if i ~= #self.v then idx(self, i) end
+      table.insert(self.v, i + 1, convert(x))
+    end
+    function L:remove(i) return table.remove(self.v, idx(self, i)) end
+    function L:removeValue(x)
+      x = convert(x)
+      for i, y in ipairs(self.v) do if y == x then table.remove(self.v, i) return i - 1 end end
+      return -1
+    end
+    function L:clear() self.v = {} end
+    function L:hasValue(x) x = convert(x) for _, y in ipairs(self.v) do if y == x then return true end end return false end
+    function L:index(x) x = convert(x) for i, y in ipairs(self.v) do if y == x then return i - 1 end end return -1 end
+    function L:sort() table.sort(self.v) end
+    function L:sortReverse() table.sort(self.v, function(a, b) return a > b end) end
+    function L:reverse()
+      local v, n = self.v, #self.v
+      for i = 1, n // 2 do v[i], v[n - i + 1] = v[n - i + 1], v[i] end
+    end
+    function L:shuffle()
+      for i = #self.v, 2, -1 do local j = math.floor(random(i)) + 1 if j > i then j = i end self.v[i], self.v[j] = self.v[j], self.v[i] end
+    end
+    function L:copy() return new(self.v) end
+    -- toArray(): a plain Lua list (from 1) of the values
+    function L:toArray() local out = {} for i, x in ipairs(self.v) do out[i] = x end return out end
+    -- for i, x in l:values() do ... end   (i from 0)
+    function L:values()
+      local i = 0
+      return function() i = i + 1 if self.v[i] ~= nil then return i - 1, self.v[i] end end
+    end
+    if kind ~= "StringList" then
+      function L:sum() local t = 0 for _, x in ipairs(self.v) do t = t + x end return t end
+      function L:min()
+        if #self.v == 0 then error(kind .. ":min() on an empty list", 2) end
+        local m = self.v[1] for _, x in ipairs(self.v) do if x < m then m = x end end return m
+      end
+      function L:max()
+        if #self.v == 0 then error(kind .. ":max() on an empty list", 2) end
+        local m = self.v[1] for _, x in ipairs(self.v) do if x > m then m = x end end return m
+      end
+      function L:add(i, n) self.v[idx(self, i)] = convert(self.v[i + 1] + n) end
+      function L:sub(i, n) self.v[idx(self, i)] = convert(self.v[i + 1] - n) end
+      function L:mult(i, n) self.v[idx(self, i)] = convert(self.v[i + 1] * n) end
+      function L:div(i, n) self.v[idx(self, i)] = convert(self.v[i + 1] / n) end
+      function L:increment(i) self:add(i, 1) end
+    else
+      function L:lower() for i, x in ipairs(self.v) do self.v[i] = x:lower() end end
+      function L:upper() for i, x in ipairs(self.v) do self.v[i] = x:upper() end end
+      function L:join(sep) return table.concat(self.v, sep or "") end
+    end
+    return new, L
+  end
+
+  local function toInt(x)
+    local n = tonumber(x)
+    if n == nil then error("IntList: " .. tostring(x) .. " is not a number", 4) end
+    n = n >= 0 and math.floor(n) or math.ceil(n)
+    return math.tointeger(n) or n
+  end
+  local function toFloat(x)
+    local n = tonumber(x)
+    if n == nil then error("FloatList: " .. tostring(x) .. " is not a number", 4) end
+    return n + 0.0
+  end
+  IntList = makeList("IntList", toInt)
+  FloatList = makeList("FloatList", toFloat)
+  StringList = makeList("StringList", tostring)
+
+  local function makeDict(kind, convert, numeric)
+    local D = {}
+    D.__index = D
+    D.__name = kind
+    D.__tostring = function(self)
+      local parts = {}
+      for i, k in ipairs(self.k) do parts[i] = string.format("%q: %s", k, tostring(self.v[k])) end
+      return kind .. " size=" .. #self.k .. " { " .. table.concat(parts, ", ") .. " }"
+    end
+    local function new(init)
+      local self = setmetatable({ k = {}, v = {} }, D)
+      if type(init) == "table" then
+        local keys = {}
+        for key in pairs(init) do keys[#keys + 1] = tostring(key) end
+        table.sort(keys)
+        for _, key in ipairs(keys) do self:set(key, init[key] == nil and init[tonumber(key)] or init[key]) end
+      end
+      return self
+    end
+    function D:size() return #self.k end
+    function D:hasKey(key) return self.v[tostring(key)] ~= nil end
+    -- get(key) -> the value; get(key, default) when it may be missing
+    function D:get(key, default)
+      local v = self.v[tostring(key)]
+      if v == nil then
+        if default ~= nil then return default end
+        error(kind .. ': no key "' .. tostring(key) .. '"', 2)
+      end
+      return v
+    end
+    function D:set(key, value)
+      key = tostring(key)
+      if self.v[key] == nil then self.k[#self.k + 1] = key end
+      self.v[key] = convert(value)
+    end
+    function D:remove(key)
+      key = tostring(key)
+      local v = self.v[key]
+      if v == nil then return nil end
+      self.v[key] = nil
+      for i, k in ipairs(self.k) do if k == key then table.remove(self.k, i) break end end
+      return v
+    end
+    function D:clear() self.k = {} self.v = {} end
+    function D:keys() local out = {} for i, k in ipairs(self.k) do out[i] = k end return out end
+    function D:valueArray() local out = {} for i, k in ipairs(self.k) do out[i] = self.v[k] end return out end
+    function D:keyArray() return self:keys() end
+    -- for key, value in d:pairs() do ... end, in the dictionary's order
+    function D:pairs()
+      local i = 0
+      return function() i = i + 1 local k = self.k[i] if k ~= nil then return k, self.v[k] end end
+    end
+    function D:key(i) return self.k[i + 1] end
+    function D:value(i) return self.v[self.k[i + 1]] end
+    function D:sortKeys() table.sort(self.k) end
+    function D:sortKeysReverse() table.sort(self.k, function(a, b) return a > b end) end
+    function D:sortValues()
+      local v = self.v
+      table.sort(self.k, function(a, b) if v[a] == v[b] then return a < b end return v[a] < v[b] end)
+    end
+    function D:sortValuesReverse()
+      local v = self.v
+      table.sort(self.k, function(a, b) if v[a] == v[b] then return a < b end return v[a] > v[b] end)
+    end
+    function D:copy() local c = new() for _, k in ipairs(self.k) do c:set(k, self.v[k]) end return c end
+    if numeric then
+      function D:add(key, n) key = tostring(key) self:set(key, (self.v[key] or 0) + n) end
+      function D:sub(key, n) self:add(key, -n) end
+      function D:mult(key, n) key = tostring(key) self:set(key, (self.v[key] or 0) * n) end
+      function D:div(key, n) key = tostring(key) self:set(key, (self.v[key] or 0) / n) end
+      function D:increment(key) self:add(key, 1) end
+      function D:sum() local t = 0 for _, k in ipairs(self.k) do t = t + self.v[k] end return t end
+      local function pick(self, better)
+        local best
+        for _, k in ipairs(self.k) do if best == nil or better(self.v[k], self.v[best]) then best = k end end
+        return best
+      end
+      function D:maxKey() return pick(self, function(a, b) return a > b end) end
+      function D:minKey() return pick(self, function(a, b) return a < b end) end
+      function D:maxValue() local k = self:maxKey() return k and self.v[k] end
+      function D:minValue() local k = self:minKey() return k and self.v[k] end
+    end
+    return new, D
+  end
+  IntDict = makeDict("IntDict", toInt, true)
+  FloatDict = makeDict("FloatDict", toFloat, true)
+  StringDict = makeDict("StringDict", tostring, false)
 end
