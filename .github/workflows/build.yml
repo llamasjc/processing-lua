@@ -131,9 +131,9 @@ jobs:
         shell: bash
         run: git clone --depth 1 https://github.com/pepc84/RustMode.git ../RustMode
 
-      - name: Install X11 and sound headers (Linux)
+      - name: Install X11 headers (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -q && sudo apt-get install -y -q libx11-dev libxkbcommon-dev libxcursor-dev libxrandr-dev libxi-dev libasound2-dev pkg-config
+        run: sudo apt-get update -q && sudo apt-get install -y -q libx11-dev libxkbcommon-dev libxcursor-dev libxrandr-dev libxi-dev pkg-config
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
