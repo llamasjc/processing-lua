@@ -318,6 +318,11 @@ public class LuaEditor extends Editor {
         return new EditorToolbar(this) {
             @Override public void handleRun(int mode) { LuaEditor.this.startRunner(mode == 1); }
             @Override public void handleStop() { LuaEditor.this.handleStop(); }
+            // the renderer menu, left of the mode selector
+            @Override public void addModeButtons(javax.swing.Box box, javax.swing.JLabel label) {
+                box.add(Renderer.menu());
+                addGap(box);
+            }
         };
     }
 

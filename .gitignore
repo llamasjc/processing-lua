@@ -2,6 +2,7 @@ build/
 .gradle/
 native/.build/
 runner/target/
+runner/target-libprocessing/
 mode/*.jar
 mode/runner/
 lib/**/*.so

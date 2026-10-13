@@ -80,6 +80,12 @@ public final class LuaBuild {
 
         String runner = resolveRunner();
         RunLog.log("build: runner = " + runner);
+        if (runner == null && Renderer.libprocessing()) {
+            return List.of(new LuaProblem(-1, -1,
+                "The libprocessing runner isn't built yet. Run LuaMode/runner/build-libprocessing.sh "
+                + "(it uses ~/sketchbook/libprocessing when it's there), or pick Software in the toolbar.",
+                LuaProblem.Severity.ERROR));
+        }
         if (runner == null) {
             return List.of(new LuaProblem(-1, -1,
                 "The sketch runner (luamode-runner) is missing for " + LuaMode.detectPlatform()
@@ -137,6 +143,8 @@ public final class LuaBuild {
         // kill -9), the pipe closes and the sketch window closes with it
         // instead of staying behind as an orphan.
         pb.environment().put("LUAMODE_WATCH_STDIN", "1");
+        if (Renderer.libprocessing()) pb.environment().put("PROCESSING_RENDERER", "libprocessing");
+        else pb.environment().remove("PROCESSING_RENDERER");
         java.awt.Rectangle disp = display;
         if (disp != null && disp.width > 0 && disp.height > 0) {
             pb.environment().put("PROCESSING_DISPLAY",
@@ -311,6 +319,13 @@ public final class LuaBuild {
     private String resolveRunner() {
         String exe = System.getProperty("os.name", "").toLowerCase().contains("win")
                      ? "luamode-runner.exe" : "luamode-runner";
+
+        // libprocessing picked in the toolbar: only its own build will do
+        if (Renderer.libprocessing()) {
+            File lp = new File(modeFolder, "runner/target-libprocessing/release/" + exe);
+            if (!lp.exists()) lp = new File(modeFolder, "mode/runner/" + LuaMode.detectPlatform() + "-libprocessing/" + exe);
+            return lp.exists() && lp.canExecute() ? lp.getAbsolutePath() : null;
+        }
 
         // 1. Dev build: a fresh `cargo build --release` in runner/ always wins,
         //    so working on the runner never runs a stale bundled copy

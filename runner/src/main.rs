@@ -61,7 +61,7 @@ fn main() {
         let at = info.location().map(|l| format!(" ({}, line {})", l.file(), l.line())).unwrap_or_default();
         eprintln!("luamode-runner internal error: {}{}", msg, at);
         eprintln!("This is a bug in Lua Mode, not in your sketch.");
-        std::process::exit(70);
+        processing::exit_with(70);
     }));
 
     // Started by the IDE: it keeps our stdin open and never writes to it.
@@ -97,14 +97,14 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             eprintln!("usage: luamode-runner <sketch.lua>");
-            std::process::exit(2);
+            processing::exit_with(2);
         });
 
     // Not read_to_string: one stray byte (a Latin-1 comment, say) shouldn't
     // stop the sketch from running. Lua strings are bytes anyway.
     let sketch_src = fs::read(&sketch_path).unwrap_or_else(|e| {
         eprintln!("{}: {}", sketch_path.display(), e);
-        std::process::exit(2);
+        processing::exit_with(2);
     });
     // a UTF-8 byte order mark is a syntax error to Lua
     let sketch_src = sketch_src.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&sketch_src);
@@ -131,7 +131,7 @@ fn main() {
 
     if let Err(e) = register_globals(&lua).and_then(|_| lua.load(PRELUDE).set_name("=luamode").exec()) {
         eprintln!("luamode-runner internal error: {}", e);
-        std::process::exit(70);
+        processing::exit_with(70);
     }
 
     // The window can't process events while Lua is running, so a sketch stuck
@@ -212,7 +212,7 @@ fn call_with<'lua, A: IntoLuaMulti<'lua>>(s: &'lua RunnerState, name: &str, args
 fn fail(e: &LuaError, chunk: &str) -> ! {
     let _ = std::io::stdout().flush();
     eprintln!("{}", describe(e, chunk));
-    std::process::exit(1);
+    processing::exit_with(1);
 }
 
 fn describe(e: &LuaError, chunk: &str) -> String {
@@ -896,7 +896,7 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         let mut out = std::io::stdout().lock();
         if out.write_all(&line).and_then(|_| out.flush()).is_err() {
             // Nobody is reading any more: the IDE that started us is gone.
-            std::process::exit(0);
+            processing::exit_with(0);
         }
         Ok(())
     })?)?;

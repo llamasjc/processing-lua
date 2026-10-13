@@ -2,7 +2,6 @@
 name    = "luamode-runner"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.82"
 
 # The runner is a thin host: it owns the event loop (via the processing App
 # builder) and exposes every Processing function to Lua via mlua.
@@ -24,6 +23,16 @@ mlua = { version = "0.9", features = ["lua54", "vendored"] }
 # so Rust and Lua sketches share one renderer. It's imported as `engine`;
 # src/processing.rs adapts it to the calls the Lua bindings make.
 engine = { package = "processing", path = "../../RustMode" }
+
+[features]
+# The libprocessing renderer (Bevy + wgpu). A separate, much bigger build:
+#   runner/build-libprocessing.sh  (uses ~/sketchbook/libprocessing when it is there)
+# LuaMode uses it when the toolbar's renderer menu says libprocessing.
+libprocessing = ["engine/libprocessing"]
+
+# libprocessing's Bevy fork stands in for upstream Bevy (as in libprocessing itself)
+[patch."https://github.com/bevyengine/bevy"]
+bevy = { git = "https://github.com/processing/bevy", branch = "main" }
 
 [profile.release]
 opt-level = 3

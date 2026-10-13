@@ -57,6 +57,17 @@ cargo build --release
 # binary at runner/target/release/luamode-runner
 ```
 
+For the libprocessing renderer (picked in the toolbar menu left of the mode
+selector), build a second runner. It compiles Bevy, so the first build takes
+a while, and it needs Rust stable and GLFW 3.4. It uses your own
+libprocessing checkout at `~/sketchbook/libprocessing` (or `LIBPROCESSING_DIR`)
+when there is one, and the pinned upstream commit otherwise:
+
+```sh
+runner/build-libprocessing.sh
+# binary at runner/target-libprocessing/release/luamode-runner
+```
+
 Copy it to `mode/runner/<platform>/luamode-runner` where `<platform>` is one of:
 `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`.
 

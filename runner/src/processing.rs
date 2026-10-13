@@ -85,6 +85,7 @@ pub fn millis() -> u64       { engine::millis() }
 pub fn set_loop(on: bool)    { if on { engine::r#loop() } else { engine::no_loop() } }
 pub fn redraw()              { engine::redraw() }
 pub fn exit()                { engine::exit() }
+pub fn exit_with(code: i32) -> ! { engine::exit_with(code) }
 pub fn show_cursor()         { engine::cursor() }
 pub fn hide_cursor()         { engine::no_cursor() }
 
