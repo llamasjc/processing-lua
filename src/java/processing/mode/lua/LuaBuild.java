@@ -83,7 +83,7 @@ public final class LuaBuild {
         if (runner == null && Renderer.libprocessing()) {
             return List.of(new LuaProblem(-1, -1,
                 "The libprocessing runner isn't built yet. Run LuaMode/runner/build-libprocessing.sh "
-                + "(it uses ~/sketchbook/libprocessing when it's there), or pick Software in the toolbar.",
+                + "(it uses ~/sketchbook/libprocessing when it's there), or pick CPU in the toolbar.",
                 LuaProblem.Severity.ERROR));
         }
         if (runner == null) {
