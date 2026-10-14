@@ -176,12 +176,82 @@ jobs:
             runner/target/${{ matrix.target }}/release/luamode-runner
             runner/target/${{ matrix.target }}/release/luamode-runner.exe
 
+  # ── libprocessing runner (the GPU renderer picked in the toolbar) ────────
+  # Built here once per platform so nobody has to compile Bevy themselves.
+  runner-libprocessing:
+    name: libprocessing runner (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04,   platform: linux-x86_64 }
+          - { os: macos-13,       platform: macos-x86_64 }
+          - { os: macos-latest,   platform: macos-aarch64 }
+          - { os: windows-latest, platform: windows-x86_64 }
+    # GLFW on Windows isn't sorted out yet; the others don't wait on it
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check out RustMode engine
+        shell: bash
+        run: git clone --depth 1 https://github.com/pepc84/RustMode.git ../RustMode
+
+      - name: Rust (RustMode's pinned version)
+        shell: bash
+        run: |
+          v=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' ../RustMode/rust-toolchain.toml)
+          rustup toolchain install "${v:-stable}" --profile minimal
+          echo "RUSTUP_TOOLCHAIN=${v:-stable}" >> "$GITHUB_ENV"
+
+      - name: Linux libraries and GLFW 3.4
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libx11-dev libxkbcommon-dev libxcursor-dev libxrandr-dev libxi-dev \
+            libxinerama-dev libwayland-dev wayland-protocols libasound2-dev libudev-dev pkg-config cmake
+          curl -fsSL https://github.com/glfw/glfw/releases/download/3.4/glfw-3.4.zip -o glfw.zip
+          unzip -q glfw.zip
+          cmake -S glfw-3.4 -B glfw-build -DBUILD_SHARED_LIBS=ON -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF
+          sudo cmake --build glfw-build --target install
+          sudo ldconfig
+
+      - name: GLFW (macOS)
+        if: runner.os == 'macOS'
+        run: brew install glfw
+
+      - name: Cargo registry
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-lp-${{ matrix.platform }}-${{ hashFiles('runner/Cargo.lock') }}
+
+      - name: Build
+        working-directory: runner
+        shell: bash
+        run: cargo build --release --features libprocessing --target-dir target-libprocessing
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v6
+        with:
+          name: lpr-${{ matrix.platform }}
+          path: |
+            runner/target-libprocessing/release/luamode-runner
+            runner/target-libprocessing/release/luamode-runner.exe
+
   # ── Distribution ZIP ─────────────────────────────────────────────────────
   dist:
     name: Distribution ZIP
-    needs: [java, native, runner]
+    needs: [java, native, runner, runner-libprocessing]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    # a libprocessing runner that didn't build leaves that platform on CPU only
+    if: >-
+      !cancelled() && needs.java.result == 'success' && needs.native.result == 'success' && needs.runner.result == 'success' &&
+      (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
 
     steps:
       - uses: actions/checkout@v5
@@ -247,6 +317,22 @@ jobs:
           chmod +x mode/runner/linux-x86_64/luamode-runner
           chmod +x mode/runner/macos-x86_64/luamode-runner
           chmod +x mode/runner/macos-aarch64/luamode-runner
+
+      - name: Download libprocessing runners
+        uses: actions/download-artifact@v6
+        with:
+          pattern: lpr-*
+          path: lp-runners/
+
+      - name: Stage libprocessing runners
+        shell: bash
+        run: |
+          for p in linux-x86_64 macos-x86_64 macos-aarch64 windows-x86_64; do
+            [ -d "lp-runners/lpr-$p" ] || { echo "no libprocessing runner for $p"; continue; }
+            mkdir -p "mode/runner/$p-libprocessing"
+            cp lp-runners/lpr-$p/* "mode/runner/$p-libprocessing/"
+            chmod +x "mode/runner/$p-libprocessing/luamode-runner" 2>/dev/null || true
+          done
 
       - name: Build distribution ZIP
         env:
