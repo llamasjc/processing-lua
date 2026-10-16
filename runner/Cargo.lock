@@ -5251,6 +5251,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "fontdue",
+ "glfw",
  "minifb",
  "parking_lot",
  "png 0.17.16",

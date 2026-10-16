@@ -501,6 +501,48 @@ do
   end
 end
 
+-- ── Movie and Capture (need ffmpeg) ───────────────────────────────────────
+-- local m = Movie("clip.mp4")   m:loop()   if m:available() then m:read() end   image(m, 0, 0)
+-- m:play() m:pause() m:stop() m:jump(seconds) m:speed(rate) m:time() m:duration()
+-- local cam = Capture(640, 480)   cam:start()   if cam:available() then cam:read() end   image(cam, 0, 0)
+-- Capture.list() gives the camera names; Capture(640, 480, name) opens one.
+do
+  local new_movie, new_capture, list, op = __movieNew, __captureNew, __captureList, __video
+  __movieNew, __captureNew, __captureList, __video = nil, nil, nil, nil
+  local MovieObj, CaptureObj = {}, {}
+  MovieObj.__index, CaptureObj.__index = MovieObj, CaptureObj
+  for _, name in ipairs({ "play", "loop", "noLoop", "pause", "stop", "jump", "speed", "time", "duration",
+                          "frameRate", "isPlaying", "available", "read" }) do
+    MovieObj[name] = function(self, x) return op(self.handle, name, x) end
+  end
+  function MovieObj:volume() end
+  for _, name in ipairs({ "start", "stop", "available", "read" }) do
+    CaptureObj[name] = function(self, x) return op(self.handle, name, x) end
+  end
+  MovieObj.__tostring = function(m) return "movie " .. m.width .. "x" .. m.height end
+  CaptureObj.__tostring = function(c) return "capture " .. c.width .. "x" .. c.height end
+  Movie = setmetatable({}, { __call = function(_, path)
+    local h, img, w, ht = new_movie(path)
+    return setmetatable({ handle = h, img = img, width = w, height = ht }, MovieObj)
+  end })
+  Capture = setmetatable({ list = function() return list() end }, { __call = function(_, w, h, name, fps)
+    local hd, img = new_capture(w, h, name, fps)
+    return setmetatable({ handle = hd, img = img, width = w, height = h }, CaptureObj)
+  end })
+  -- image(m, ...) and texture(m) take movies and cameras too
+  local drawImage, setTexture = image, texture
+  function image(img, ...)
+    local mt = getmetatable(img)
+    if mt == MovieObj or mt == CaptureObj then return drawImage(img.img, ...) end
+    return drawImage(img, ...)
+  end
+  function texture(img)
+    local mt = getmetatable(img)
+    if mt == MovieObj or mt == CaptureObj then return setTexture(img.img) end
+    return setTexture(img)
+  end
+end
+
 -- ── loadShape (SVG) ───────────────────────────────────────────────────────
 -- local logo = loadShape("logo.svg")     -- nil if it can't be read
 -- shape(logo, 10, 10)   shape(logo, 10, 10, 200, 100)   logo.width, logo.height
@@ -542,13 +584,14 @@ end
 -- belong to it; a shape without any is drawn with the sketch's current style.
 -- s:setFill(c) / s:setStroke(c) / s:setStrokeWeight(w) change them later.
 -- s:translate / s:rotate / s:scale turn the shape itself, and add up.
-POINT, LINE, TRIANGLE, QUAD, RECT, ELLIPSE, ARC, GROUP = 2, 4, 8, 16, 30, 31, 32, 0
+POINT, LINE, TRIANGLE, QUAD, RECT, ELLIPSE, ARC, GROUP, SPHERE, BOX = 2, 4, 8, 16, 30, 31, 32, 0, 40, 41
 do
   local Made = {}
   Made.__index = Made
   local primitives = { [POINT] = "point", [LINE] = "line", [TRIANGLE] = "triangle", [QUAD] = "quad",
-                       [RECT] = "rect", [ELLIPSE] = "ellipse", [ARC] = "arc" }
-  local recorded = { "vertex", "bezierVertex", "quadraticVertex", "curveVertex" }
+                       [RECT] = "rect", [ELLIPSE] = "ellipse", [ARC] = "arc", [SPHERE] = "sphere", [BOX] = "box" }
+  local recorded = { "vertex", "bezierVertex", "quadraticVertex", "curveVertex", "texture", "normal",
+                     "beginContour", "endContour" }
   local styles = { "fill", "stroke", "noFill", "noStroke", "strokeWeight", "strokeCap", "strokeJoin" }
 
   function createShape(kind, ...)
@@ -591,8 +634,12 @@ do
   function Made:disableStyle() self.styled = false for _, c in ipairs(self.children) do c:disableStyle() end return self end
   function Made:enableStyle() self.styled = true for _, c in ipairs(self.children) do c:enableStyle() end return self end
 
-  function Made:translate(x, y) self.moves[#self.moves + 1] = { "translate", x, y } return self end
-  function Made:rotate(a) self.moves[#self.moves + 1] = { "rotate", a } return self end
+  function Made:rotate(...) self.moves[#self.moves + 1] = { "rotate", ... } return self end
+  function Made:rotateX(a) self.moves[#self.moves + 1] = { "rotateX", a } return self end
+  function Made:rotateY(a) self.moves[#self.moves + 1] = { "rotateY", a } return self end
+  function Made:rotateZ(a) self.moves[#self.moves + 1] = { "rotate", a } return self end
+  function Made:translate(x, y, z) self.moves[#self.moves + 1] = { "translate", x, y, z or 0 } return self end
+
   function Made:scale(...) self.moves[#self.moves + 1] = { "scale", ... } return self end
   function Made:resetMatrix() self.moves = {} return self end
 

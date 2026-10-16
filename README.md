@@ -22,6 +22,24 @@ The LOVE2D and Roblox paths use `mode/lua/processing.lua`, a pure-Lua implementa
 
 Syntax highlighting and real-time lint feedback are powered by tree-sitter.
 
+## Textures, cameras, models and video
+
+These run in the IDE (luamode-runner); the LOVE2D and Roblox exports don't have them.
+
+```lua
+beginShape() texture(img)                     -- vertex(x, y, u, v) or vertex(x, y, z, u, v)
+vertex(0, 0, 0, 0) vertex(100, 0, 1, 0) vertex(100, 100, 1, 1)
+endShape()
+textureMode(NORMAL) textureWrap(REPEAT)
+beginCamera() rotateY(0.2) endCamera()        -- also frustum, ortho(l, r, b, t), printCamera, modelX, screenZ
+local model = loadShape("ship.obj")           -- OBJ with its .mtl colors and pictures
+local box = createShape(BOX, 40, 40, 40)
+local movie = Movie("clip.mp4") movie:loop()  -- needs ffmpeg
+if movie:available() then movie:read() end
+image(movie, 0, 0)
+local cam = Capture(640, 480) cam:start()     -- Capture.list() for the camera names
+```
+
 ## Building
 
 You need:

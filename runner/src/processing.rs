@@ -205,7 +205,6 @@ pub fn load_pixels() -> Vec<u32> { engine::load_pixels() }
 pub fn update_pixels(px: &[u32]) { engine::update_pixels(px) }
 pub fn shear_x(a: f32) { engine::shear_x(a) }
 pub fn shear_y(a: f32) { engine::shear_y(a) }
-pub fn apply_matrix(a: f32, b: f32, c: f32, d: f32, e: f32, f: f32) { engine::apply_matrix(a, b, c, d, e, f) }
 
 pub fn lerp_color(r1: f32, g1: f32, b1: f32, r2: f32, g2: f32, b2: f32, t: f32) -> (f32, f32, f32) {
     let t = t.clamp(0.0, 1.0);
@@ -278,7 +277,6 @@ pub fn begin_shape(kind: i32) {
 }
 /// CLOSE is 2, as in Processing.
 pub fn end_shape(mode: i32) { engine::end_shape_mode(if mode == 2 { engine::CLOSE } else { 0 }) }
-pub fn vertex(x: f32, y: f32) { engine::vertex(x, y) }
 pub fn bezier_vertex(cx1: f32, cy1: f32, cx2: f32, cy2: f32, x: f32, y: f32) {
     engine::bezier_vertex(cx1, cy1, cx2, cy2, x, y)
 }
@@ -309,13 +307,38 @@ pub fn three(name: &str, a: &[f32]) -> Result<Option<f32>, String> {
         ("camera", _) => { need(9)?; engine::camera_look(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8]) }
         ("perspective", 0) => engine::perspective_default(),
         ("perspective", _) => { need(4)?; engine::perspective(a[0], a[1], a[2], a[3]) }
-        ("ortho", _) => engine::ortho(),
         ("lights", _) => engine::lights(),
         ("noLights", _) => engine::no_lights(),
         ("ambientLight", 1) => engine::ambient_light(a[0], a[0], a[0]),
         ("ambientLight", _) => { need(3)?; engine::ambient_light(a[0], a[1], a[2]) }
         ("directionalLight", _) => { need(6)?; engine::directional_light(a[0], a[1], a[2], a[3], a[4], a[5]) }
         ("pointLight", _) => { need(6)?; engine::point_light(a[0], a[1], a[2], a[3], a[4], a[5]) }
+        ("beginCamera", _) => engine::begin_camera(),
+        ("endCamera", _) => engine::end_camera(),
+        ("printCamera", _) => engine::print_camera(),
+        ("printProjection", _) => engine::print_projection(),
+        ("frustum", _) => { need(6)?; engine::frustum(a[0], a[1], a[2], a[3], a[4], a[5]) }
+        ("ortho", 0) => engine::ortho(),
+        ("ortho", 4) | ("ortho", 5) => engine::ortho_rect(a[0], a[1], a[2], a[3]),
+        ("ortho", _) => { need(6)?; engine::ortho_planes(a[0], a[1], a[2], a[3], a[4], a[5]) }
+        ("modelX", _) => { need(3)?; return Ok(Some(engine::model_x(a[0], a[1], a[2]))) }
+        ("modelY", _) => { need(3)?; return Ok(Some(engine::model_y(a[0], a[1], a[2]))) }
+        ("modelZ", _) => { need(3)?; return Ok(Some(engine::model_z(a[0], a[1], a[2]))) }
+        ("screenZ", _) => { need(3)?; return Ok(Some(engine::screen_z(a[0], a[1], a[2]))) }
+        ("normal", _) => {}
+        ("textureMode", _) => { need(1)?; engine::texture_mode(a[0] as u8) }
+        ("textureWrap", _) => { need(1)?; engine::texture_wrap(a[0] as u8) }
+        ("texture", _) => { need(1)?; engine::texture(a[0] as u64) }
+        ("noTexture", _) => engine::no_texture(),
+        ("vertex", 2) => engine::vertex(a[0], a[1]),
+        ("vertex", 3) => engine::vertex_3d(a[0], a[1], a[2]),
+        ("vertex", 4) => engine::vertex_uv(a[0], a[1], a[2], a[3]),
+        ("vertex", _) => { need(5)?; engine::vertex_3d_uv(a[0], a[1], a[2], a[3], a[4]) }
+        ("rotate", 1) => engine::rotate(a[0]),
+        ("rotate", _) => { need(4)?; engine::rotate_axis(a[0], a[1], a[2], a[3]) }
+        ("applyMatrix", 6) => engine::apply_matrix(a[0], a[1], a[2], a[3], a[4], a[5]),
+        ("applyMatrix", _) => { need(16)?; engine::apply_matrix_3d(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7],
+                                                                    a[8], a[9], a[10], a[11], a[12], a[13], a[14], a[15]) }
         ("screenX", _) => { need(2)?; return Ok(Some(engine::screen_x(a[0], a[1], a.get(2).copied().unwrap_or(0.0)))) }
         ("screenY", _) => { need(2)?; return Ok(Some(engine::screen_y(a[0], a[1], a.get(2).copied().unwrap_or(0.0)))) }
         _ => {}

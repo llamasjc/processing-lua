@@ -658,10 +658,9 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         processing::end_shape(mode.unwrap_or(0)); Ok(())
     })?)?;
 
-    g.set("vertex", lua.create_function(|_, (x,y): (f32,f32)| {
-        processing::vertex(x,y); Ok(())
-    })?)?;
 
+    g.set("beginContour", lua.create_function(|_, ()| { engine::begin_contour(); Ok(()) })?)?;
+    g.set("endContour", lua.create_function(|_, ()| { engine::end_contour(); Ok(()) })?)?;
     g.set("bezierVertex", lua.create_function(|_, (cx1,cy1,cx2,cy2,x,y): (f32,f32,f32,f32,f32,f32)| {
         processing::bezier_vertex(cx1,cy1,cx2,cy2,x,y); Ok(())
     })?)?;
@@ -687,9 +686,6 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         processing::translate3(x, y, z.unwrap_or(0.0)); Ok(())
     })?)?;
 
-    g.set("rotate", lua.create_function(|_, angle: f32| {
-        processing::rotate(angle); Ok(())
-    })?)?;
 
     g.set("scale", lua.create_function(|_, args: LuaMultiValue| {
         let vals: Vec<f32> = args.iter()
@@ -712,11 +708,19 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     g.set("rotateX", lua.create_function(|_, a: f32| { let _ = processing::three("rotateX", &[a]); Ok(()) })?)?;
     g.set("rotateY", lua.create_function(|_, a: f32| { let _ = processing::three("rotateY", &[a]); Ok(()) })?)?;
     g.set("rotateZ", lua.create_function(|_, a: f32| { processing::rotate(a); Ok(()) })?)?;
+    g.set("IMAGE", 0_i64)?;
+    g.set("NORMAL", 1_i64)?;
+    g.set("CLAMP", 0_i64)?;
+    g.set("REPEAT", 1_i64)?;
     for name in ["box", "sphere", "sphereDetail", "camera", "perspective", "ortho", "lights", "noLights",
-                 "ambientLight", "directionalLight", "pointLight", "screenX", "screenY"] {
+                 "ambientLight", "directionalLight", "pointLight", "screenX", "screenY", "screenZ",
+                 "beginCamera", "endCamera", "printCamera", "printProjection", "frustum",
+                 "modelX", "modelY", "modelZ", "normal", "textureMode", "textureWrap", "texture", "noTexture",
+                 "vertex", "rotate", "applyMatrix"] {
         g.set(name, lua.create_function(move |_, args: LuaMultiValue| {
             let mut v = Vec::with_capacity(args.len());
             for a in args.iter() {
+                if a.is_nil() { break; }     // a replayed createShape step pads with nils
                 match a.to_num() {
                     Some(n) => v.push(n),
                     None => return Err(LuaError::RuntimeError(format!("{name}() expects numbers"))),
@@ -731,9 +735,6 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     // line and point take a z too in 3D: line(x1, y1, z1, x2, y2, z2)
     g.set("shearX", lua.create_function(|_, a: f32| { processing::shear_x(a); Ok(()) })?)?;
     g.set("shearY", lua.create_function(|_, a: f32| { processing::shear_y(a); Ok(()) })?)?;
-    g.set("applyMatrix", lua.create_function(|_, (a, b, c, d, e, f): (f32, f32, f32, f32, f32, f32)| {
-        processing::apply_matrix(a, b, c, d, e, f); Ok(())
-    })?)?;
 
     g.set("resetMatrix", lua.create_function(|_, ()| {
         processing::reset_matrix(); Ok(())
@@ -914,6 +915,53 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
             _                  => processing::image(id as u64, x, y),
         }
         Ok(())
+    })?)?;
+
+    // Movie and Capture: prelude.lua wraps these handles into objects
+    g.set("__movieNew", lua.create_function(|_, path: LuaString| {
+        let m = engine::Movie::new(&path.to_string_lossy());
+        let (img, w, h) = (m.image(), m.width(), m.height());
+        Ok((video_add(Video::M(m)), img as i64, w as f64, h as f64))
+    })?)?;
+    g.set("__captureNew", lua.create_function(|_, (w, h, name, fps): (f32, f32, Option<LuaString>, Option<f32>)| {
+        let name = name.map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let c = match fps { Some(f) => engine::Capture::with_fps(w, h, &name, f), None => engine::Capture::with_device(w, h, &name) };
+        let img = c.image();
+        Ok((video_add(Video::C(c)), img as i64))
+    })?)?;
+    g.set("__captureList", lua.create_function(|_, ()| Ok(engine::capture_list()))?)?;
+    g.set("__video", lua.create_function(|_, (h, op, arg): (i64, LuaString, Option<f32>)| {
+        let op = op.to_string_lossy();
+        VIDEOS.with(|v| {
+            let mut v = v.borrow_mut();
+            let Some(Some(item)) = v.get_mut(h as usize) else { return Ok(LuaValue::Nil) };
+            let x = arg.unwrap_or(0.0);
+            Ok(match item {
+                Video::M(m) => match op.as_ref() {
+                    "play" => { m.play(); LuaValue::Nil }
+                    "loop" => { m.loop_(); LuaValue::Nil }
+                    "noLoop" => { m.no_loop(); LuaValue::Nil }
+                    "pause" => { m.pause(); LuaValue::Nil }
+                    "stop" => { m.stop(); LuaValue::Nil }
+                    "jump" => { m.jump(x); LuaValue::Nil }
+                    "speed" => { m.speed(x); LuaValue::Nil }
+                    "time" => LuaValue::Number(m.time() as f64),
+                    "duration" => LuaValue::Number(m.duration() as f64),
+                    "frameRate" => LuaValue::Number(m.frame_rate() as f64),
+                    "isPlaying" => LuaValue::Boolean(m.is_playing()),
+                    "available" => LuaValue::Boolean(m.available()),
+                    "read" => { m.read(); LuaValue::Nil }
+                    _ => LuaValue::Nil,
+                },
+                Video::C(c) => match op.as_ref() {
+                    "start" => { c.start(); LuaValue::Nil }
+                    "stop" => { c.stop(); LuaValue::Nil }
+                    "available" => LuaValue::Boolean(c.available()),
+                    "read" => { c.read(); LuaValue::Nil }
+                    _ => LuaValue::Nil,
+                },
+            })
+        })
     })?)?;
 
     // loadShape: prelude.lua wraps these into an object with width, height,
@@ -1164,4 +1212,11 @@ impl AsF32 for LuaValue<'_> {
             _                    => None,
         }
     }
+}
+
+// ── Movie and Capture handles ────────────────────────────────────────────
+enum Video { M(engine::Movie), C(engine::Capture) }
+thread_local! { static VIDEOS: std::cell::RefCell<Vec<Option<Video>>> = const { std::cell::RefCell::new(Vec::new()) }; }
+fn video_add(v: Video) -> i64 {
+    VIDEOS.with(|all| { let mut all = all.borrow_mut(); all.push(Some(v)); all.len() as i64 - 1 })
 }
