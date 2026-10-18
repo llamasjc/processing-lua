@@ -81,14 +81,8 @@ function bezierTangent(a, b, c, d, t)
   local u = 1 - t
   return 3 * u * u * (b - a) + 6 * u * t * (c - b) + 3 * t * t * (d - c)
 end
-function curvePoint(a, b, c, d, t)
-  local t2, t3 = t * t, t * t * t
-  return 0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3)
-end
-function curveTangent(a, b, c, d, t)
-  local t2 = t * t
-  return 0.5 * ((-a + c) + 2 * (2 * a - 5 * b + 4 * c - d) * t + 3 * (-a + 3 * b - 3 * c + d) * t2)
-end
+function curvePoint(a, b, c, d, t) return __curve(a, b, c, d, t, 0) end
+function curveTangent(a, b, c, d, t) return __curve(a, b, c, d, t, 1) end
 
 -- ── Date and time (local) ─────────────────────────────────────────────────
 function year()   return os.date("*t").year  end
@@ -543,6 +537,230 @@ do
   end
 end
 
+-- shapeMode: the engine handles loaded shapes; shapes made in code ask here
+do
+  local engineShapeMode, mode = shapeMode, 0
+  function shapeMode(m) mode = m engineShapeMode(m) end
+  function __shapeModeNow() return mode end
+end
+
+-- ── XML ───────────────────────────────────────────────────────────────────
+-- local xml = loadXML("data.xml")          -- nil if it can't be read
+-- for _, item in ipairs(xml:getChildren("item")) do print(item:getString("name")) end
+-- xml:getChild("a/b")  xml:getInt("size")  xml:getContent()  xml:addChild("new")
+-- saveXML(xml, "out.xml")   parseXML(text)   xml:format(2)
+do
+  local parse = __parseXML
+  __parseXML = nil
+  local XML = {}
+  XML.__index = XML
+  local function wrap(t)
+    local x = setmetatable({ name = t.name, attrs = t.attrs or {}, order = t.order or {}, content = t.content or "", children = {} }, XML)
+    for i, c in ipairs(t.children or {}) do x.children[i] = wrap(c) end
+    return x
+  end
+  function XML:getName() return self.name end
+  function XML:setName(n) self.name = n return self end
+  function XML:hasChildren() return #self.children > 0 end
+  function XML:getChildCount() return #self.children end
+  function XML:listChildren() local t = {} for i, c in ipairs(self.children) do t[i] = c.name end return t end
+  function XML:getChild(path)
+    if type(path) == "number" then return self.children[path + 1] end   -- counts from 0, as in Processing
+    local cur = self
+    for part in tostring(path):gmatch("[^/]+") do
+      local found
+      for _, c in ipairs(cur.children) do if c.name == part then found = c break end end
+      if not found then return nil end
+      cur = found
+    end
+    return cur
+  end
+  function XML:getChildren(path)
+    if not path or path == "" then local t = {} for i, c in ipairs(self.children) do t[i] = c end return t end
+    local parent, last = tostring(path):match("^(.*)/([^/]+)$")
+    local p = self
+    if parent then p = self:getChild(parent) if not p then return {} end else last = path end
+    local t = {}
+    for _, c in ipairs(p.children) do if c.name == last then t[#t + 1] = c end end
+    return t
+  end
+  function XML:addChild(child)
+    if type(child) == "string" then child = wrap({ name = child }) end
+    self.children[#self.children + 1] = child
+    return child
+  end
+  function XML:removeChild(child)
+    for i, c in ipairs(self.children) do
+      if c == child or c.name == child then table.remove(self.children, i) break end
+    end
+    return self
+  end
+  function XML:getAttributeCount() return #self.order end
+  function XML:listAttributes() local t = {} for i, k in ipairs(self.order) do t[i] = k end return t end
+  function XML:hasAttribute(k) return self.attrs[k] ~= nil end
+  function XML:getString(k, default) local v = self.attrs[k] if v == nil then return default end return v end
+  function XML:getInt(k, default) local v = tonumber(self.attrs[k]) return v and math.floor(v) or (default or 0) end
+  function XML:getFloat(k, default) return tonumber(self.attrs[k]) or (default or 0) end
+  function XML:setString(k, v)
+    if self.attrs[k] == nil then self.order[#self.order + 1] = k end
+    self.attrs[k] = tostring(v)
+    return self
+  end
+  XML.setInt, XML.setFloat = XML.setString, XML.setString
+  function XML:removeAttribute(k)
+    self.attrs[k] = nil
+    for i, o in ipairs(self.order) do if o == k then table.remove(self.order, i) break end end
+    return self
+  end
+  function XML:getContent() return self.content end
+  function XML:getIntContent() return math.floor(tonumber(self.content) or 0) end
+  function XML:getFloatContent() return tonumber(self.content) or 0 end
+  function XML:setContent(t) self.content = tostring(t) return self end
+  local function esc(v) return (tostring(v):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;")) end
+  local function write(x, out, indent, depth)
+    local pad = indent >= 0 and string.rep(" ", indent * depth) or ""
+    local nl = indent >= 0 and "\n" or ""
+    local parts = { pad, "<", x.name }
+    for _, k in ipairs(x.order) do if x.attrs[k] ~= nil then parts[#parts + 1] = " " .. k .. '="' .. esc(x.attrs[k]) .. '"' end end
+    if #x.children == 0 and x.content == "" then
+      parts[#parts + 1] = "/>" .. nl
+      out[#out + 1] = table.concat(parts)
+      return
+    end
+    parts[#parts + 1] = ">"
+    if #x.children == 0 then
+      parts[#parts + 1] = esc(x.content)
+      out[#out + 1] = table.concat(parts)
+    else
+      out[#out + 1] = table.concat(parts) .. nl
+      for _, c in ipairs(x.children) do write(c, out, indent, depth + 1) end
+      out[#out + 1] = pad
+    end
+    out[#out + 1] = "</" .. x.name .. ">" .. nl
+  end
+  function XML:format(indent)
+    local out = {}
+    write(self, out, indent or 2, 0)
+    return table.concat(out)
+  end
+  XML.toString = function(self) return self:format(-1) end
+  XML.__tostring = function(self) return self:format(2) end
+  function parseXML(text)
+    local t, why = parse(tostring(text))
+    if not t then io.stderr:write("parseXML: " .. tostring(why) .. "\n") return nil end
+    return wrap(t)
+  end
+  function loadXML(path)
+    local lines = loadStrings(path)
+    if not lines then io.stderr:write("loadXML: could not open " .. tostring(path) .. "\n") return nil end
+    local t, why = parse(table.concat(lines, "\n"))
+    if not t then io.stderr:write("loadXML: " .. tostring(path) .. ": " .. tostring(why) .. "\n") return nil end
+    return wrap(t)
+  end
+  function saveXML(xml, path)
+    local f = io.open(path, "w")
+    if not f then io.stderr:write("saveXML: could not write " .. tostring(path) .. "\n") return false end
+    f:write('<?xml version="1.0" encoding="UTF-8"?>\n', xml:format(2))
+    f:close()
+    return true
+  end
+  -- an empty element to build on, like new XML("name")
+  XML.new = function(name) return wrap({ name = name }) end
+  _G.XML = setmetatable({}, { __index = XML, __call = function(_, name) return wrap({ name = name }) end })
+end
+
+-- ── Writers, readers, file dialogs ────────────────────────────────────────
+-- local out = createWriter("out.txt")  out:println("hi")  out:flush()  out:close()
+-- local r = createReader("in.txt")  local line = r:readLine()   -- nil at the end
+-- selectInput("Pick a file", "fileChosen")  calls fileChosen(path), or fileChosen(nil)
+do
+  local Writer, Reader = {}, {}
+  Writer.__index, Reader.__index = Writer, Reader
+  local function text(...) local t = {} for i = 1, select("#", ...) do t[i] = tostring((select(i, ...))) end return table.concat(t, " ") end
+  function Writer:print(...) if self.f then self.f:write(text(...)) end end
+  function Writer:println(...) if self.f then self.f:write(text(...), "\n") end end
+  function Writer:flush() if self.f then self.f:flush() end end
+  function Writer:close() if self.f then self.f:close() self.f = nil end end
+  function createWriter(path)
+    local dir = tostring(path):match("^(.*)/[^/]*$")
+    if dir and dir ~= "" then os.execute((package.config:sub(1, 1) == "\\" and 'mkdir "' or 'mkdir -p "') .. dir .. '"') end
+    local f, why = io.open(path, "w")
+    if not f then io.stderr:write("createWriter: " .. tostring(why) .. "\n") end
+    return setmetatable({ f = f }, Writer)
+  end
+  function Reader:readLine() if self.f then return self.f:read("l") end end
+  function Reader:close() if self.f then self.f:close() self.f = nil end end
+  function createReader(path)
+    local f = io.open(path, "r") or io.open("data/" .. tostring(path), "r")
+    if not f then io.stderr:write("createReader: could not open " .. tostring(path) .. "\n") end
+    return setmetatable({ f = f }, Reader)
+  end
+  local dialogs = { selectInput = __selectInput, selectOutput = __selectOutput, selectFolder = __selectFolder }
+  __selectInput, __selectOutput, __selectFolder = nil, nil, nil
+  for name, ask in pairs(dialogs) do
+    _G[name] = function(prompt, callback)
+      local path = ask(prompt)
+      local f = type(callback) == "function" and callback or _G[callback]
+      if type(f) == "function" then f(path) end
+      return path
+    end
+  end
+end
+
+-- ── Arrays, as Processing has them (lists counted from 1 here) ────────────
+function append(list, v) local t = {} for i, x in ipairs(list) do t[i] = x end t[#t + 1] = v return t end
+function shorten(list) local t = {} for i = 1, #list - 1 do t[i] = list[i] end return t end
+function expand(list, n) local t = {} for i, x in ipairs(list) do t[i] = x end return t end
+function concat(a, b) local t = {} for _, x in ipairs(a) do t[#t + 1] = x end for _, x in ipairs(b) do t[#t + 1] = x end return t end
+function subset(list, start, count)
+  local t = {}
+  local stop = count and (start + count - 1) or #list
+  for i = start, math.min(stop, #list) do t[#t + 1] = list[i] end
+  return t
+end
+function splice(list, v, at)
+  local t = {}
+  for i = 1, at - 1 do t[#t + 1] = list[i] end
+  if type(v) == "table" then for _, x in ipairs(v) do t[#t + 1] = x end else t[#t + 1] = v end
+  for i = at, #list do t[#t + 1] = list[i] end
+  return t
+end
+function arrayCopy(src, a, b, c, d)
+  if b == nil then for i, x in ipairs(src) do a[i] = x end return end   -- arrayCopy(src, dst)
+  if c == nil then for i = 1, b do a[i] = src[i] end return end           -- arrayCopy(src, dst, n)
+  for i = 0, d - 1 do b[c + i] = src[a + i] end                          -- arrayCopy(src, from, dst, to, n)
+end
+function reverse(list) local t = {} for i = #list, 1, -1 do t[#t + 1] = list[i] end return t end
+function sort(list, n)
+  local t = {} for i, x in ipairs(list) do t[i] = x end
+  if n and n < #t then
+    local head = subset(t, 1, n) table.sort(head)
+    for i = 1, n do t[i] = head[i] end
+    return t
+  end
+  table.sort(t)
+  return t
+end
+
+-- thread("work") runs work() a step at a time between frames: it can call
+-- coroutine.yield() to let the sketch draw. Without yields it runs to the end.
+do
+  local running = {}
+  function thread(fn)
+    local f = type(fn) == "function" and fn or _G[fn]
+    if type(f) ~= "function" then error("thread() expects a function or the name of one", 2) end
+    running[#running + 1] = coroutine.create(f)
+  end
+  function __runThreads()
+    for i = #running, 1, -1 do
+      local ok, why = coroutine.resume(running[i])
+      if not ok then table.remove(running, i) error(why, 0) end
+      if coroutine.status(running[i]) == "dead" then table.remove(running, i) end
+    end
+  end
+end
+function requestImage(path) return loadImage(path) end
+
 -- ── loadShape (SVG) ───────────────────────────────────────────────────────
 -- local logo = loadShape("logo.svg")     -- nil if it can't be read
 -- shape(logo, 10, 10)   shape(logo, 10, 10, 200, 100)   logo.width, logo.height
@@ -704,9 +922,34 @@ do
     popStyle()
     popMatrix()
   end
-  __shapeKinds[Made] = function(self, x, y)
+  -- the box around a shape's own vertices, for shapeMode(CENTER) and sizes
+  local function bounds(self)
+    local x0, y0, x1, y1
+    for _, st in ipairs(self.steps) do
+      if st[1] == "vertex" and type(st[2]) == "number" and type(st[3]) == "number" then
+        x0 = math.min(x0 or st[2], st[2]) x1 = math.max(x1 or st[2], st[2])
+        y0 = math.min(y0 or st[3], st[3]) y1 = math.max(y1 or st[3], st[3])
+      end
+    end
+    if not x0 then return 0, 0, 0, 0 end
+    return x0, y0, x1 - x0, y1 - y0
+  end
+  function Made:getWidth() local _, _, w = bounds(self) return w end
+  function Made:getHeight() local _, _, _, h = bounds(self) return h end
+  __shapeKinds[Made] = function(self, x, y, w, h)
+    x, y = x or 0, y or 0
+    local mode = __shapeModeNow and __shapeModeNow() or 0
     pushMatrix()
-    translate(x or 0, y or 0)
+    if w and h then
+      if mode == CORNERS then w, h = w - x, h - y
+      elseif mode == CENTER then x, y = x - w / 2, y - h / 2 end
+      translate(x, y)
+      -- a shape made in code is taken as 100 x 100, as in Processing
+      scale(w / 100, h / 100)
+    else
+      if mode == CENTER then local _, _, bw, bh = bounds(self) x, y = x - bw / 2, y - bh / 2 end
+      translate(x, y)
+    end
     paint(self, 0)
     popMatrix()
   end

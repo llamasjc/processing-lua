@@ -40,6 +40,16 @@ image(movie, 0, 0)
 local cam = Capture(640, 480) cam:start()     -- Capture.list() for the camera names
 ```
 
+Also: `spotLight`, `lightFalloff`, `lightSpecular`, `ambient`, `specular`,
+`emissive`, `shininess`, `bezierDetail`, `curveDetail`, `curveTightness`,
+`shapeMode`, `copy`, `blend`, `mouseClicked()` (only when the mouse didn't
+drag), `windowMove`, `windowResize`, `printMatrix`, XML (`loadXML`,
+`parseXML`, `saveXML`, `XML("name")`), `createWriter`, `createReader`,
+`selectInput("prompt", "callback")` and its Output and Folder friends,
+`match` / `matchAll` with regular expressions like Processing's, the array
+helpers (`append`, `subset`, `splice`, `sort`...), and `thread("work")`, which
+runs `work()` a step at a time between frames (`coroutine.yield()` for a step).
+
 ## Building
 
 You need:

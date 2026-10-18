@@ -157,7 +157,8 @@ fn main() {
     App::new(state, setup_fn, draw_fn)
         .title("Lua sketch")
         .mouse_pressed(|s| event(s, &["mousePressed"]))
-        .mouse_released(|s| event(s, &["mouseReleased", "mouseClicked"]))
+        .mouse_released(|s| event(s, &["mouseReleased"]))
+        .mouse_clicked(|s| event(s, &["mouseClicked"]))
         .mouse_moved(|s| event(s, &["mouseMoved"]))
         .mouse_dragged(|s| event(s, &["mouseDragged"]))
         .mouse_wheel(|s, delta| {
@@ -178,6 +179,7 @@ fn setup_fn(s: &mut RunnerState) {
 
 fn draw_fn(s: &mut RunnerState) {
     sync_frame_globals(&s.lua);
+    call_with(s, "__runThreads", ());
     call_with(s, "draw", ());
 }
 
@@ -716,7 +718,10 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
                  "ambientLight", "directionalLight", "pointLight", "screenX", "screenY", "screenZ",
                  "beginCamera", "endCamera", "printCamera", "printProjection", "frustum",
                  "modelX", "modelY", "modelZ", "normal", "textureMode", "textureWrap", "texture", "noTexture",
-                 "vertex", "rotate", "applyMatrix"] {
+                 "vertex", "rotate", "applyMatrix",
+                 "spotLight", "lightFalloff", "lightSpecular", "ambient", "specular", "emissive", "shininess",
+                 "bezierDetail", "curveDetail", "curveTightness", "shapeMode", "pixelDensity", "displayDensity",
+                 "pixelWidth", "pixelHeight", "windowMove", "windowResize", "textMode", "printMatrix", "copy", "blend"] {
         g.set(name, lua.create_function(move |_, args: LuaMultiValue| {
             let mut v = Vec::with_capacity(args.len());
             for a in args.iter() {
@@ -962,6 +967,54 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
                 },
             })
         })
+    })?)?;
+
+    // curvePoint / curveTangent, with the engine's curveTightness
+    g.set("__curve", lua.create_function(|_, (a, b, c, d, t, tangent): (f32, f32, f32, f32, f32, i32)| {
+        Ok(if tangent == 1 { engine::curve_tangent(a, b, c, d, t) } else { engine::curve_point(a, b, c, d, t) } as f64)
+    })?)?;
+    // match / matchAll with regular expressions, like Processing (Lua's own
+    // string.match takes Lua patterns)
+    g.set("match", lua.create_function(|lua, (text, pat): (LuaString, LuaString)| {
+        match engine::match_re(&text.to_string_lossy(), &pat.to_string_lossy()) {
+            Some(v) => Ok(LuaValue::Table(lua.create_sequence_from(v)?)),
+            None => Ok(LuaValue::Nil),
+        }
+    })?)?;
+    g.set("matchAll", lua.create_function(|lua, (text, pat): (LuaString, LuaString)| {
+        let all = engine::match_all(&text.to_string_lossy(), &pat.to_string_lossy());
+        if all.is_empty() { return Ok(LuaValue::Nil); }
+        let t = lua.create_table()?;
+        for (i, m) in all.into_iter().enumerate() { t.set(i + 1, lua.create_sequence_from(m)?)?; }
+        Ok(LuaValue::Table(t))
+    })?)?;
+    // file dialogs: wait for the choice, then call back like Processing
+    for (name, kind) in [("__selectInput", 0), ("__selectOutput", 1), ("__selectFolder", 2)] {
+        g.set(name, lua.create_function(move |_, prompt: Option<LuaString>| {
+            let p = prompt.map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+            Ok(match kind { 0 => engine::select_input(&p), 1 => engine::select_output(&p), _ => engine::select_folder(&p) })
+        })?)?;
+    }
+    // XML: parsed in Rust, handed to Lua as nested tables (prelude.lua wraps them)
+    fn xml_to_lua<'l>(lua: &'l Lua, x: &engine::Xml) -> LuaResult<LuaTable<'l>> {
+        let t = lua.create_table()?;
+        t.set("name", x.get_name())?;
+        let attrs = lua.create_table()?;
+        let order = lua.create_table()?;
+        for (i, k) in x.list_attributes().into_iter().enumerate() { attrs.set(k.as_str(), x.get_string(&k))?; order.set(i + 1, k)?; }
+        t.set("attrs", attrs)?;
+        t.set("order", order)?;
+        t.set("content", x.get_content())?;
+        let kids = lua.create_table()?;
+        for (i, c) in x.get_children("").into_iter().enumerate() { kids.set(i + 1, xml_to_lua(lua, c)?)?; }
+        t.set("children", kids)?;
+        Ok(t)
+    }
+    g.set("__parseXML", lua.create_function(|lua, text: LuaString| {
+        match engine::parse_xml(&text.to_string_lossy()) {
+            Ok(x) => Ok((LuaValue::Table(xml_to_lua(lua, &x)?), LuaValue::Nil)),
+            Err(e) => Ok((LuaValue::Nil, LuaValue::String(lua.create_string(&e)?))),
+        }
     })?)?;
 
     // loadShape: prelude.lua wraps these into an object with width, height,
