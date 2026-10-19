@@ -3,6 +3,8 @@
 #
 #   runner/tests/run.sh                 all tests
 #   runner/tests/run.sh err_ fuzz       only tests whose name contains one of these
+#   RUNNER=target-libprocessing/release/luamode-runner PROCESSING_RENDERER=libprocessing runner/tests/run.sh
+#                                       the same tests on libprocessing
 #
 # Each test says what it expects in comments at the top of the file:
 #   -- rc: 1                 exit status (default 0; 124 means "still running
@@ -23,6 +25,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 RUNNER=${RUNNER:-$HERE/../target/release/luamode-runner}
 [ -x "$RUNNER" ] || RUNNER=$RUNNER.exe
 [ -x "$RUNNER" ] || { echo "no runner at $RUNNER (cargo build --release first)" >&2; exit 2; }
+# tests run from a scratch folder, so a relative path has to become absolute
+case $RUNNER in /*) ;; *) RUNNER=$(cd "$(dirname "$RUNNER")" && pwd)/$(basename "$RUNNER") ;; esac
 
 if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ] && [ "$(uname -s)" = Linux ]; then
   command -v xvfb-run >/dev/null || { echo "no display and no xvfb-run" >&2; exit 2; }

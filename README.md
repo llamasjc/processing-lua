@@ -45,6 +45,9 @@ Shaders: `local s = loadShader("blur.glsl")` (or `createShader(text)`),
 filter shaders, run on the CPU by default and on the GPU with libprocessing.
 `shader(s)` colors the shapes drawn after it (`vertColor` is the fill) until
 `resetShader()`, on both renderers.
+`loadShader("frag.glsl", "vert.glsl")` (or `createShader(frag, vert)`) adds a
+vertex shader with Processing's attributes, matrices and varyings, on both
+renderers (libprocessing needs the lp-fork).
 
 Also: `spotLight`, `lightFalloff`, `lightSpecular`, `ambient`, `specular`,
 `emissive`, `shininess`, `bezierDetail`, `curveDetail`, `curveTightness`,
