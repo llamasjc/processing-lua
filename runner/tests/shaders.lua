@@ -51,15 +51,18 @@ function draw()
       gl_FragColor = vec4(vertColor.rgb * on, 1.0);
     }
   ]])
-  local gpu = os.getenv("PROCESSING_RENDERER") == "libprocessing"
-  if not gpu then
-    -- 2D shapes: the software renderer only, for now
-    background(0, 0, 100) fill(0, 255, 0)
-    shader(stripes) rect(40, 40, 80, 40) resetShader()
-    r, g, b = get(45, 60) assert(g == 0 and b == 0, "shader(): stripe off: " .. r .. "," .. g .. "," .. b)
-    r, g, b = get(55, 60) assert(g == 255 and b == 0, "shader(): stripe on, the fill's color: " .. r .. "," .. g .. "," .. b)
-    r, g, b = get(20, 20) assert(b == 100, "shader(): outside the shape untouched")
-  end
+  background(0, 0, 100) fill(0, 255, 0)
+  shader(stripes) rect(40, 40, 80, 40)
+  r, g, b = get(45, 60) assert(g == 0 and b == 0, "shader(): stripe off: " .. r .. "," .. g .. "," .. b)
+  r, g, b = get(55, 60) assert(g == 255 and b == 0, "shader(): stripe on, the fill's color: " .. r .. "," .. g .. "," .. b)
+  r, g, b = get(20, 20) assert(b == 100, "shader(): outside the shape untouched")
+  -- each shape keeps its own fill; ellipses and shapes from vertices too
+  fill(255, 0, 0) ellipse(30, 100, 30, 30)
+  fill(255, 255, 255) beginShape() vertex(130, 90) vertex(158, 90) vertex(144, 118) endShape(CLOSE)
+  resetShader()
+  r, g, b = get(35, 100) assert(r == 255 and g == 0, "shader(): ellipse in its own fill: " .. r .. "," .. g .. "," .. b)
+  r, g, b = get(135, 92) assert(r == 255 and g == 255 and b == 255, "shader(): shape from vertices: " .. r .. "," .. g .. "," .. b)
+  r, g, b = get(55, 60) assert(g == 255 and r == 0, "an earlier shape keeps its fill: " .. r .. "," .. g .. "," .. b)
   -- a 3D shape, on both renderers
   background(0, 0, 100) fill(255, 255, 0)
   shader(stripes) push() translate(80, 60) box(60) pop() resetShader()

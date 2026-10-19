@@ -44,7 +44,7 @@ Shaders: `local s = loadShader("blur.glsl")` (or `createShader(text)`),
 `s:set("radius", 3)`, `s:set("other", img)`, `filter(s)`. Processing's GLSL
 filter shaders, run on the CPU by default and on the GPU with libprocessing.
 `shader(s)` colors the shapes drawn after it (`vertColor` is the fill) until
-`resetShader()`; on libprocessing that works for 3D shapes for now.
+`resetShader()`, on both renderers.
 
 Also: `spotLight`, `lightFalloff`, `lightSpecular`, `ambient`, `specular`,
 `emissive`, `shininess`, `bezierDetail`, `curveDetail`, `curveTightness`,
