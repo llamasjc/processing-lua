@@ -10,6 +10,14 @@ function work() for i = 1, 3 do stepped = i coroutine.yield() end end
 function setup() size(200, 160) thread("work") end
 function draw()
   if frameCount < 4 then return end
+  -- a spot light lights on every frame, not just the one it was made in
+  if frameCount < 6 then
+    noStroke() background(0) fill(255)
+    spotLight(255, 255, 255, 50, 80, 300, 0, 0, -1, PI / 16, 1) rect(0, 0, 200, 160) noLights()
+    local c, far = get(50, 80), get(180, 20)
+    assert(c > 100 and far < 20, "spot light on frame " .. frameCount .. ": " .. c .. " " .. far)
+    return
+  end
   assert(stepped == 3, "thread ran a step a frame: " .. stepped)
   noStroke()
   -- a spot light only lights its cone
