@@ -37,6 +37,12 @@ function draw()
   ]])
   background(200) tint:set("k", 0.5, 1.0, 0.0) filter(tint)
   r, g, b = get(5, 5) assert(near(r, 100) and near(g, 200) and b == 0, "createShader + set(x, y, z): " .. r .. "," .. g .. "," .. b)
+  -- a second image as a uniform
+  local img = createImage(4, 4)
+  for y = 0, 3 do for x = 0, 3 do imageSet(img, x, y, color(0, 0, 255)) end end
+  local mixer = loadShader(dir .. "mixer.glsl")
+  background(255, 0, 0) mixer:set("other", img) mixer:set("amount", 0.5) filter(mixer)
+  r, g, b = get(80, 60) assert(near(r, 128) and g == 0 and near(b, 128), "second image: " .. r .. "," .. g .. "," .. b)
   -- a mistake says where and gives nothing back
   assert(createShader("void main() { gl_FragColor = vec4(oops); }") == nil, "a broken shader")
   -- plain filters still work
