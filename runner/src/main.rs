@@ -571,6 +571,36 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     g.set("filter", lua.create_function(|_, (kind, param): (i32, Option<f32>)| {
         processing::filter(kind, param.unwrap_or(f32::NAN)); Ok(())
     })?)?;
+    // shaders: prelude.lua wraps the handle into an object with :set()
+    g.set("__loadShader", lua.create_function(|_, path: LuaString| {
+        let s = engine::load_shader(&path.to_string_lossy());
+        Ok(SHADERS.with(|v| { let mut v = v.borrow_mut(); v.push(s); v.len() as i64 }))
+    })?)?;
+    g.set("__shaderFromSource", lua.create_function(|_, src: LuaString| {
+        let s = engine::shader_from_source(&src.to_string_lossy());
+        Ok(SHADERS.with(|v| { let mut v = v.borrow_mut(); v.push(s); v.len() as i64 }))
+    })?)?;
+    g.set("__shaderOk", lua.create_function(|_, h: i64| {
+        Ok(SHADERS.with(|v| v.borrow().get((h - 1) as usize).map(|s| s.is_ok()).unwrap_or(false)))
+    })?)?;
+    g.set("__shaderSet", lua.create_function(|_, (h, name, args): (i64, LuaString, LuaMultiValue)| {
+        let mut vals = Vec::new();
+        for a in args.iter() {
+            match a {
+                LuaValue::Boolean(b) => vals.push(if *b { 1.0 } else { 0.0 }),
+                LuaValue::Table(t) => for x in t.clone().sequence_values::<f64>().flatten() { vals.push(x as f32) },
+                other => if let Some(n) = other.to_num() { vals.push(n) },
+            }
+        }
+        if let Some(s) = SHADERS.with(|v| v.borrow().get((h - 1) as usize).copied()) {
+            s.set(&name.to_string_lossy(), vals);
+        }
+        Ok(())
+    })?)?;
+    g.set("__filterShader", lua.create_function(|_, h: i64| {
+        if let Some(s) = SHADERS.with(|v| v.borrow().get((h - 1) as usize).copied()) { engine::filter(s); }
+        Ok(())
+    })?)?;
     for (name, v) in [("BLUR", 11), ("GRAY", 12), ("INVERT", 13), ("OPAQUE", 14),
                       ("POSTERIZE", 15), ("THRESHOLD", 16), ("ERODE", 17), ("DILATE", 18)] {
         g.set(name, v as i64)?;
@@ -1273,3 +1303,5 @@ thread_local! { static VIDEOS: std::cell::RefCell<Vec<Option<Video>>> = const { 
 fn video_add(v: Video) -> i64 {
     VIDEOS.with(|all| { let mut all = all.borrow_mut(); all.push(Some(v)); all.len() as i64 - 1 })
 }
+
+thread_local! { static SHADERS: std::cell::RefCell<Vec<engine::PShader>> = const { std::cell::RefCell::new(Vec::new()) }; }

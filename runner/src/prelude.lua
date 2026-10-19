@@ -761,6 +761,35 @@ do
 end
 function requestImage(path) return loadImage(path) end
 
+-- ── Shaders ───────────────────────────────────────────────────────────────
+-- local s = loadShader("blur.glsl")      -- a GLSL filter shader, as in Processing
+-- s:set("radius", 3)  s:set("center", x, y)  filter(s)
+-- Runs on the CPU with the default renderer, on the GPU with libprocessing.
+do
+  local load, fromSource, ok, set, run = __loadShader, __shaderFromSource, __shaderOk, __shaderSet, __filterShader
+  __loadShader, __shaderFromSource, __shaderOk, __shaderSet, __filterShader = nil, nil, nil, nil, nil
+  local Shader = {}
+  Shader.__index = Shader
+  function Shader:set(name, ...) set(self.handle, name, ...) return self end
+  Shader.__tostring = function() return "shader" end
+  function loadShader(frag, vert)
+    local h = load(frag)
+    if not ok(h) then return nil end
+    return setmetatable({ handle = h }, Shader)
+  end
+  -- a shader from text in the sketch
+  function createShader(src)
+    local h = fromSource(src)
+    if not ok(h) then return nil end
+    return setmetatable({ handle = h }, Shader)
+  end
+  local plainFilter = filter
+  function filter(kind, ...)
+    if getmetatable(kind) == Shader then return run(kind.handle) end
+    return plainFilter(kind, ...)
+  end
+end
+
 -- ── loadShape (SVG) ───────────────────────────────────────────────────────
 -- local logo = loadShape("logo.svg")     -- nil if it can't be read
 -- shape(logo, 10, 10)   shape(logo, 10, 10, 200, 100)   logo.width, logo.height

@@ -40,6 +40,10 @@ image(movie, 0, 0)
 local cam = Capture(640, 480) cam:start()     -- Capture.list() for the camera names
 ```
 
+Shaders: `local s = loadShader("blur.glsl")` (or `createShader(text)`),
+`s:set("radius", 3)`, `filter(s)`. Processing's GLSL filter shaders, run on the
+CPU by default and on the GPU with libprocessing.
+
 Also: `spotLight`, `lightFalloff`, `lightSpecular`, `ambient`, `specular`,
 `emissive`, `shininess`, `bezierDetail`, `curveDetail`, `curveTightness`,
 `shapeMode`, `copy`, `blend`, `mouseClicked()` (only when the mouse didn't

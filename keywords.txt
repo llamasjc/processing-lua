@@ -311,3 +311,5 @@ subset	KEYWORD2
 sort	KEYWORD2
 reverse	KEYWORD2
 thread	KEYWORD2
+loadShader	KEYWORD2
+createShader	KEYWORD2
