@@ -313,3 +313,5 @@ reverse	KEYWORD2
 thread	KEYWORD2
 loadShader	KEYWORD2
 createShader	KEYWORD2
+shader	KEYWORD2
+resetShader	KEYWORD2

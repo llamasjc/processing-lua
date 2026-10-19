@@ -766,8 +766,8 @@ function requestImage(path) return loadImage(path) end
 -- s:set("radius", 3)  s:set("center", x, y)  filter(s)
 -- Runs on the CPU with the default renderer, on the GPU with libprocessing.
 do
-  local load, fromSource, ok, set, run = __loadShader, __shaderFromSource, __shaderOk, __shaderSet, __filterShader
-  __loadShader, __shaderFromSource, __shaderOk, __shaderSet, __filterShader = nil, nil, nil, nil, nil
+  local load, fromSource, ok, set, run, shapes = __loadShader, __shaderFromSource, __shaderOk, __shaderSet, __filterShader, __shapeShader
+  __loadShader, __shaderFromSource, __shaderOk, __shaderSet, __filterShader, __shapeShader = nil, nil, nil, nil, nil, nil
   local Shader = {}
   Shader.__index = Shader
   function Shader:set(name, ...) set(self.handle, name, ...) return self end
@@ -783,6 +783,13 @@ do
     if not ok(h) then return nil end
     return setmetatable({ handle = h }, Shader)
   end
+  -- shader(s): shapes after it are colored by the shader (vertColor is the
+  -- fill); resetShader() goes back to plain fills
+  function shader(s)
+    if getmetatable(s) ~= Shader then error("shader() expects a shader from loadShader()", 2) end
+    shapes(s.handle)
+  end
+  function resetShader() shapes(nil) end
   local plainFilter = filter
   function filter(kind, ...)
     if getmetatable(kind) == Shader then return run(kind.handle) end

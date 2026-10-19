@@ -597,6 +597,13 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         }
         Ok(())
     })?)?;
+    g.set("__shapeShader", lua.create_function(|_, h: Option<i64>| {
+        match h.and_then(|h| SHADERS.with(|v| v.borrow().get((h - 1) as usize).copied())) {
+            Some(s) => engine::shader(s),
+            None => engine::reset_shader(),
+        }
+        Ok(())
+    })?)?;
     g.set("__filterShader", lua.create_function(|_, h: i64| {
         if let Some(s) = SHADERS.with(|v| v.borrow().get((h - 1) as usize).copied()) { engine::filter(s); }
         Ok(())

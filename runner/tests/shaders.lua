@@ -43,6 +43,32 @@ function draw()
   local mixer = loadShader(dir .. "mixer.glsl")
   background(255, 0, 0) mixer:set("other", img) mixer:set("amount", 0.5) filter(mixer)
   r, g, b = get(80, 60) assert(near(r, 128) and g == 0 and near(b, 128), "second image: " .. r .. "," .. g .. "," .. b)
+  -- shader() colors the shapes drawn after it; vertColor is their fill
+  local stripes = createShader([[
+    varying vec4 vertColor;
+    void main() {
+      float on = mod(floor(gl_FragCoord.x / 10.0), 2.0);
+      gl_FragColor = vec4(vertColor.rgb * on, 1.0);
+    }
+  ]])
+  local gpu = os.getenv("PROCESSING_RENDERER") == "libprocessing"
+  if not gpu then
+    -- 2D shapes: the software renderer only, for now
+    background(0, 0, 100) fill(0, 255, 0)
+    shader(stripes) rect(40, 40, 80, 40) resetShader()
+    r, g, b = get(45, 60) assert(g == 0 and b == 0, "shader(): stripe off: " .. r .. "," .. g .. "," .. b)
+    r, g, b = get(55, 60) assert(g == 255 and b == 0, "shader(): stripe on, the fill's color: " .. r .. "," .. g .. "," .. b)
+    r, g, b = get(20, 20) assert(b == 100, "shader(): outside the shape untouched")
+  end
+  -- a 3D shape, on both renderers
+  background(0, 0, 100) fill(255, 255, 0)
+  shader(stripes) push() translate(80, 60) box(60) pop() resetShader()
+  local onx = (math.floor(80 / 10) % 2 == 1) and 80 or 90
+  local offx = onx - 10
+  r, g, b = get(onx + 2, 60) assert(r > 200 and g > 200 and b < 30, "shader() on a box, stripe on: " .. r .. "," .. g .. "," .. b)
+  r, g, b = get(offx + 2, 60) assert(r < 30 and g < 30 and b < 30, "shader() on a box, stripe off: " .. r .. "," .. g .. "," .. b)
+  r, g, b = get(5, 5) assert(b == 100, "outside the box untouched")
+  fill(0, 255, 0) rect(130, 40, 20, 20) r, g, b = get(140, 50) assert(g == 255, "resetShader: plain fill again")
   -- a mistake says where and gives nothing back
   assert(createShader("void main() { gl_FragColor = vec4(oops); }") == nil, "a broken shader")
   -- plain filters still work
