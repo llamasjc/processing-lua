@@ -572,12 +572,18 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         processing::filter(kind, param.unwrap_or(f32::NAN)); Ok(())
     })?)?;
     // shaders: prelude.lua wraps the handle into an object with :set()
-    g.set("__loadShader", lua.create_function(|_, path: LuaString| {
-        let s = engine::load_shader(&path.to_string_lossy());
+    g.set("__loadShader", lua.create_function(|_, (path, vert): (LuaString, Option<LuaString>)| {
+        let s = match vert {
+            Some(v) => engine::load_shader_vf(&path.to_string_lossy(), &v.to_string_lossy()),
+            None => engine::load_shader(&path.to_string_lossy()),
+        };
         Ok(SHADERS.with(|v| { let mut v = v.borrow_mut(); v.push(s); v.len() as i64 }))
     })?)?;
-    g.set("__shaderFromSource", lua.create_function(|_, src: LuaString| {
-        let s = engine::shader_from_source(&src.to_string_lossy());
+    g.set("__shaderFromSource", lua.create_function(|_, (src, vert): (LuaString, Option<LuaString>)| {
+        let s = match vert {
+            Some(v) => engine::shader_from_source_vf(&src.to_string_lossy(), &v.to_string_lossy()),
+            None => engine::shader_from_source(&src.to_string_lossy()),
+        };
         Ok(SHADERS.with(|v| { let mut v = v.borrow_mut(); v.push(s); v.len() as i64 }))
     })?)?;
     g.set("__shaderOk", lua.create_function(|_, h: i64| {

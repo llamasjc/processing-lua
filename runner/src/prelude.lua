@@ -764,6 +764,7 @@ function requestImage(path) return loadImage(path) end
 -- ── Shaders ───────────────────────────────────────────────────────────────
 -- local s = loadShader("blur.glsl")      -- a GLSL filter shader, as in Processing
 -- s:set("radius", 3)  s:set("center", x, y)  filter(s)
+-- loadShader("frag.glsl", "vert.glsl") adds a vertex shader for shader().
 -- Runs on the CPU with the default renderer, on the GPU with libprocessing.
 do
   local load, fromSource, ok, set, run, shapes = __loadShader, __shaderFromSource, __shaderOk, __shaderSet, __filterShader, __shapeShader
@@ -773,13 +774,13 @@ do
   function Shader:set(name, ...) set(self.handle, name, ...) return self end
   Shader.__tostring = function() return "shader" end
   function loadShader(frag, vert)
-    local h = load(frag)
+    local h = load(frag, vert)
     if not ok(h) then return nil end
     return setmetatable({ handle = h }, Shader)
   end
   -- a shader from text in the sketch
-  function createShader(src)
-    local h = fromSource(src)
+  function createShader(src, vert)
+    local h = fromSource(src, vert)
     if not ok(h) then return nil end
     return setmetatable({ handle = h }, Shader)
   end

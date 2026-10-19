@@ -3,12 +3,16 @@
 # toolbar's renderer menu says libprocessing. The first build takes a while.
 #
 # Uses your own libprocessing checkout when there is one: LIBPROCESSING_DIR,
-# or ~/sketchbook/libprocessing next to the modes folder. Otherwise the
-# libprocessing commit pinned in RustMode's Cargo.toml.
+# then ~/lp-fork, then ~/sketchbook/libprocessing. Otherwise the libprocessing
+# commit pinned in RustMode's Cargo.toml.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 cd "$HERE"
-FORK=${LIBPROCESSING_DIR:-$(cd "$HERE/../../.." && pwd)/libprocessing}
+FORK=${LIBPROCESSING_DIR:-}
+if [ -z "$FORK" ]; then
+  if [ -f "$HOME/lp-fork/crates/processing_render/Cargo.toml" ]; then FORK="$HOME/lp-fork"
+  else FORK=$(cd "$HERE/../../.." && pwd)/libprocessing; fi
+fi
 ARGS=()
 if [ -f "$FORK/crates/processing_render/Cargo.toml" ]; then
   echo "libprocessing from $FORK"
