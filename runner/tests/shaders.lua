@@ -72,6 +72,20 @@ function draw()
   r, g, b = get(offx + 2, 60) assert(r < 30 and g < 30 and b < 30, "shader() on a box, stripe off: " .. r .. "," .. g .. "," .. b)
   r, g, b = get(5, 5) assert(b == 100, "outside the box untouched")
   fill(0, 255, 0) rect(130, 40, 20, 20) r, g, b = get(140, 50) assert(g == 255, "resetShader: plain fill again")
+  -- arrays: a uniform array set from a table, a const array, a local one
+  local kernel = loadShader(dir .. "kernel.glsl") assert(kernel, "kernel loaded")
+  background(0) fill(255) noStroke() rect(70, 50, 20, 20)
+  local box = {} for i = 1, 9 do box[i] = 1 / 9 end
+  kernel:set("kernel", box) filter(kernel)
+  r = get(80, 60) assert(r > 250, "box blur keeps the middle: " .. r)
+  r = get(70, 60) assert(near(r, 170), "box blur on the edge is 6/9: " .. r)
+  r = get(69, 49) assert(near(r, 28), "box blur at the corner is 1/9: " .. r)
+  -- an edge kernel: only the edges stay
+  background(0) fill(255) rect(70, 50, 20, 20)
+  kernel:set("kernel", {0, -1, 0, -1, 4, -1, 0, -1, 0}) filter(kernel)
+  r = get(80, 60) assert(r == 0, "edge kernel: flat middle is dark")
+  r = get(70, 60) assert(r > 250, "edge kernel: the edge is bright: " .. r)
+  assert(createShader("uniform float a[3]; void main() { gl_FragColor = vec4(a); }") == nil, "a whole array as a value says so")
   -- a mistake says where and gives nothing back
   assert(createShader("void main() { gl_FragColor = vec4(oops); }") == nil, "a broken shader")
   -- plain filters still work
