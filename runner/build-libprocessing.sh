@@ -16,6 +16,8 @@ fi
 ARGS=()
 if [ -f "$FORK/crates/processing_render/Cargo.toml" ]; then
   echo "libprocessing from $FORK"
+  # RustMode's build.rs checks this same checkout for what it supports
+  export LIBPROCESSING_DIR="$FORK"
   for c in processing_core processing_render processing_input processing_glfw; do
     ARGS+=(--config "patch.\"https://github.com/processing/libprocessing\".$c.path=\"$FORK/crates/$c\"")
   done
