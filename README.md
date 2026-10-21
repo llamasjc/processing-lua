@@ -49,6 +49,11 @@ filter shaders, run on the CPU by default and on the GPU with libprocessing.
 vertex shader with Processing's attributes, matrices and varyings, on both
 renderers (libprocessing needs the lp-fork).
 
+`clip(x, y, w, h)` / `noClip()`, `hint(DISABLE_DEPTH_TEST)` (software
+renderer), `link(url)`, `launch(...)`, `saveStream(target, source)`, and
+`loadJSONObject`, `loadJSONArray`, `parseJSONObject`, `parseJSONArray`,
+`saveJSONObject`, `saveJSONArray` (nil when the file holds the other kind).
+
 Also: `spotLight`, `lightFalloff`, `lightSpecular`, `ambient`, `specular`,
 `emissive`, `shininess`, `bezierDetail`, `curveDetail`, `curveTightness`,
 `shapeMode`, `copy`, `blend`, `mouseClicked()` (only when the mouse didn't

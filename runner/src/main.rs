@@ -421,7 +421,7 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     g.set("CENTER",   processing::CENTER)?;
     g.set("TOP",      processing::TOP)?;
     g.set("BOTTOM",   processing::BOTTOM)?;
-    g.set("BASELINE", processing::BASELINE)?;
+    g.set("BASELINE", engine::BASELINE)?;
     g.set("CORNER",   processing::CORNER)?;
     g.set("CORNERS",  processing::CORNERS)?;
     g.set("RADIUS",   processing::RADIUS)?;
@@ -722,6 +722,34 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     // push() / pop() save and restore both the transform and the style, as in p5.js
     g.set("push", lua.create_function(|_, ()| { processing::push_matrix(); processing::push_style(); Ok(()) })?)?;
     g.set("pop",  lua.create_function(|_, ()| { processing::pop_style(); processing::pop_matrix(); Ok(()) })?)?;
+    // clip(x, y, w, h) / noClip(): only a rectangle can be drawn on
+    g.set("clip", lua.create_function(|_, (x, y, w, h): (f32, f32, f32, f32)| { engine::clip(x, y, w, h); Ok(()) })?)?;
+    g.set("noClip", lua.create_function(|_, ()| { engine::no_clip(); Ok(()) })?)?;
+    g.set("hint", lua.create_function(|_, which: i32| { engine::hint(which); Ok(()) })?)?;
+    for (n, v) in [("DISABLE_DEPTH_TEST", engine::DISABLE_DEPTH_TEST), ("ENABLE_DEPTH_TEST", engine::ENABLE_DEPTH_TEST),
+                   ("ENABLE_DEPTH_SORT", engine::ENABLE_DEPTH_SORT), ("DISABLE_DEPTH_SORT", engine::DISABLE_DEPTH_SORT),
+                   ("DISABLE_DEPTH_MASK", engine::DISABLE_DEPTH_MASK), ("ENABLE_DEPTH_MASK", engine::ENABLE_DEPTH_MASK),
+                   ("DISABLE_OPTIMIZED_STROKE", engine::DISABLE_OPTIMIZED_STROKE), ("ENABLE_OPTIMIZED_STROKE", engine::ENABLE_OPTIMIZED_STROKE),
+                   ("ENABLE_STROKE_PERSPECTIVE", engine::ENABLE_STROKE_PERSPECTIVE), ("DISABLE_STROKE_PERSPECTIVE", engine::DISABLE_STROKE_PERSPECTIVE),
+                   ("DISABLE_TEXTURE_MIPMAPS", engine::DISABLE_TEXTURE_MIPMAPS), ("ENABLE_TEXTURE_MIPMAPS", engine::ENABLE_TEXTURE_MIPMAPS),
+                   ("ENABLE_STROKE_PURE", engine::ENABLE_STROKE_PURE), ("DISABLE_STROKE_PURE", engine::DISABLE_STROKE_PURE),
+                   ("ENABLE_ASYNC_SAVEFRAME", engine::ENABLE_ASYNC_SAVEFRAME), ("DISABLE_ASYNC_SAVEFRAME", engine::DISABLE_ASYNC_SAVEFRAME),
+                   ("DISABLE_OPENGL_ERRORS", engine::DISABLE_OPENGL_ERRORS), ("ENABLE_OPENGL_ERRORS", engine::ENABLE_OPENGL_ERRORS)] {
+        g.set(n, v)?;
+    }
+    g.set("link", lua.create_function(|_, url: String| { engine::link(&url); Ok(()) })?)?;
+    g.set("launch", lua.create_function(|_, args: LuaMultiValue| {
+        let mut v: Vec<String> = Vec::new();
+        for a in args.iter() {
+            match a {
+                LuaValue::Table(t) => for s in t.clone().sequence_values::<String>() { v.push(s?); },
+                other => v.push(other.to_string()?),
+            }
+        }
+        let refs: Vec<&str> = v.iter().map(|s| s.as_str()).collect();
+        Ok(engine::launch(&refs))
+    })?)?;
+    g.set("saveStream", lua.create_function(|_, (target, source): (String, String)| Ok(engine::save_stream(&target, &source)))?)?;
     g.set("pushMatrix", lua.create_function(|_, ()| { processing::push_matrix(); Ok(()) })?)?;
     g.set("popMatrix",  lua.create_function(|_, ()| { processing::pop_matrix();  Ok(()) })?)?;
     g.set("pushStyle",  lua.create_function(|_, ()| { processing::push_style();  Ok(()) })?)?;

@@ -380,6 +380,14 @@ do
     f:close()
     return true
   end
+  -- Processing's names: an object (a table with keys) or an array (a list)
+  local function isArray(t) return type(t) == "table" and (#t > 0 or next(t) == nil) end
+  function loadJSONObject(path) local v = loadJSON(path) if type(v) == "table" and not isArray(v) then return v end return nil end
+  function loadJSONArray(path) local v = loadJSON(path) if isArray(v) then return v end return nil end
+  function parseJSONObject(text) local ok, v = pcall(parseJSON, text) if ok and type(v) == "table" and not isArray(v) then return v end return nil end
+  function parseJSONArray(text) local ok, v = pcall(parseJSON, text) if ok and isArray(v) then return v end return nil end
+  function saveJSONObject(value, path) return saveJSON(path, value) end
+  function saveJSONArray(value, path) return saveJSON(path, value) end
 end
 
 -- ── PVector ───────────────────────────────────────────────────────────────
