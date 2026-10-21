@@ -390,6 +390,44 @@ do
   function saveJSONArray(value, path) return saveJSON(path, value) end
 end
 
+-- ── bytes and conversions ─────────────────────────────────────────────────
+-- loadBytes("file") -> a list of numbers 0..255 (nil if it can't be read)
+function loadBytes(path)
+  local f = io.open(path, "rb") or io.open("data/" .. path, "rb")
+  if not f then io.stderr:write("loadBytes: could not read " .. tostring(path) .. "\n") return nil end
+  local s = f:read("a") f:close()
+  local t = {}
+  for i = 1, #s do t[i] = s:byte(i) end
+  return t
+end
+-- saveBytes("file", list): each number becomes one byte
+function saveBytes(path, list)
+  local f, why = io.open(path, "wb")
+  if not f then io.stderr:write("saveBytes: could not write " .. tostring(path) .. " (" .. tostring(why) .. ")\n") return false end
+  local parts = {}
+  for i, b in ipairs(list) do parts[i] = string.char(math.floor(b) % 256) end
+  f:write(table.concat(parts)) f:close()
+  return true
+end
+-- float("3.5") -> 3.5, byte(200) -> -56 (Java's signed byte), char(65) -> "A"
+function float(v) if type(v) == "boolean" then return v and 1.0 or 0.0 end return (tonumber(v) or 0) + 0.0 end
+function byte(v) local b = math.floor(tonumber(v) or 0) % 256 if b > 127 then b = b - 256 end return b end
+function char(v) if type(v) == "string" then return v:sub(1, 1) end return utf8.char(math.floor(v)) end
+
+-- createInput("file") / createOutput("file"): a file to read or write bytes
+-- with :read / :write / :close (Lua's own file object). Looked for as given,
+-- then in data/.
+function createInput(path)
+  local f = io.open(path, "rb") or io.open("data/" .. path, "rb")
+  if not f then io.stderr:write("createInput: could not open " .. tostring(path) .. "\n") end
+  return f
+end
+function createOutput(path)
+  local f, why = io.open(path, "wb")
+  if not f then io.stderr:write("createOutput: could not write " .. tostring(path) .. " (" .. tostring(why) .. ")\n") end
+  return f
+end
+
 -- ── PVector ───────────────────────────────────────────────────────────────
 -- v = createVector(3, 4)   v:add(w)   v:mag()   local sum = a + b
 -- Methods change the vector and return it, so they chain. The operators

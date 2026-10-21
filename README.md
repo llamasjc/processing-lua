@@ -53,6 +53,10 @@ renderers (libprocessing needs the lp-fork).
 renderer), `link(url)`, `launch(...)`, `saveStream(target, source)`, and
 `loadJSONObject`, `loadJSONArray`, `parseJSONObject`, `parseJSONArray`,
 `saveJSONObject`, `saveJSONArray` (nil when the file holds the other kind).
+`beginRecord("out.svg")` / `beginRecord(PDF, "out.pdf")` ... `endRecord()`,
+`windowRatio(w, h)` with `rwidth`, `rheight`, `rmouseX`, `rmouseY`,
+`attrib("name", ...)` for vertex shaders, and `createInput` / `createOutput`
+(Lua file objects).
 
 Also: `spotLight`, `lightFalloff`, `lightSpecular`, `ambient`, `specular`,
 `emissive`, `shininess`, `bezierDetail`, `curveDetail`, `curveTightness`,

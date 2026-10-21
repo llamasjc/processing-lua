@@ -315,6 +315,11 @@ fn sync_frame_globals(lua: &Lua) {
     let _ = g.raw_set("mouseY",  processing::mouse_y().round() as i64);
     let _ = g.raw_set("pmouseX", processing::pmouse_x().round() as i64);
     let _ = g.raw_set("pmouseY", processing::pmouse_y().round() as i64);
+    // windowRatio: the mouse and size in the sketch's own units
+    let _ = g.raw_set("rmouseX", engine::rmouse_x().round() as i64);
+    let _ = g.raw_set("rmouseY", engine::rmouse_y().round() as i64);
+    let _ = g.raw_set("rwidth",  engine::rwidth().round() as i64);
+    let _ = g.raw_set("rheight", engine::rheight().round() as i64);
     // mousePressed / keyPressed are also the names of the event callbacks.
     // Lua can't hold both, so the state lives in mouseIsPressed / keyIsPressed
     // (like p5.js), and the old names are only set when the sketch hasn't
@@ -749,6 +754,37 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         let refs: Vec<&str> = v.iter().map(|s| s.as_str()).collect();
         Ok(engine::launch(&refs))
     })?)?;
+    g.set("windowRatio", lua.create_function(|lua, (w, h): (f32, f32)| {
+        engine::window_ratio(w, h);
+        let g = lua.globals();
+        g.raw_set("rwidth", engine::rwidth().round() as i64)?;
+        g.raw_set("rheight", engine::rheight().round() as i64)?;
+        Ok(())
+    })?)?;
+    // beginRecord(PDF or SVG, "file") or beginRecord("file.svg") ... endRecord()
+    g.set("PDF", engine::PDF)?;
+    g.set("SVG", engine::SVG)?;
+    g.set("beginRecord", lua.create_function(|_, (a, b): (String, Option<String>)| {
+        match b { Some(path) => engine::begin_record(&a, &path), None => engine::begin_record("", &a) }
+        Ok(())
+    })?)?;
+    g.set("endRecord", lua.create_function(|_, ()| Ok(engine::end_record()))?)?;
+    g.set("beginRaw", lua.create_function(|_, (a, b): (String, Option<String>)| {
+        match b { Some(path) => engine::begin_raw(&a, &path), None => engine::begin_raw("", &a) }
+        Ok(())
+    })?)?;
+    g.set("endRaw", lua.create_function(|_, ()| Ok(engine::end_raw()))?)?;
+    // attrib("name", x [, y, z, w]): a value of your own for the next vertices
+    g.set("attrib", lua.create_function(|_, (name, vals): (String, LuaMultiValue)| {
+        let mut v = Vec::new();
+        for a in vals.iter() {
+            match a { LuaValue::Integer(i) => v.push(*i as f32), LuaValue::Number(x) => v.push(*x as f32), _ => {} }
+        }
+        engine::attrib(&name, v);
+        Ok(())
+    })?)?;
+    g.set("attribPosition", lua.create_function(|_, (name, x, y, z): (String, f32, f32, Option<f32>)| { engine::attrib(&name, vec![x, y, z.unwrap_or(0.0)]); Ok(()) })?)?;
+    g.set("attribNormal", lua.create_function(|_, (name, x, y, z): (String, f32, f32, f32)| { engine::attrib(&name, vec![x, y, z]); Ok(()) })?)?;
     g.set("saveStream", lua.create_function(|_, (target, source): (String, String)| Ok(engine::save_stream(&target, &source)))?)?;
     g.set("pushMatrix", lua.create_function(|_, ()| { processing::push_matrix(); Ok(()) })?)?;
     g.set("popMatrix",  lua.create_function(|_, ()| { processing::pop_matrix();  Ok(()) })?)?;
