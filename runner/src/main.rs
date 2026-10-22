@@ -20,6 +20,7 @@
 
 use mlua::prelude::*;
 mod processing;
+mod parity;
 use processing::App;
 use std::{
     env,
@@ -129,7 +130,7 @@ fn main() {
         let _ = lua.set_memory_limit(limit_mb.saturating_mul(1024 * 1024));
     }
 
-    if let Err(e) = register_globals(&lua).and_then(|_| lua.load(PRELUDE).set_name("=luamode").exec()) {
+    if let Err(e) = register_globals(&lua).and_then(|_| parity::register(&lua)).and_then(|_| lua.load(PRELUDE).set_name("=luamode").exec()) {
         eprintln!("luamode-runner internal error: {}", e);
         processing::exit_with(70);
     }
@@ -168,6 +169,12 @@ fn main() {
         .key_pressed(|s| event(s, &["keyPressed"]))
         .key_released(|s| event(s, &["keyReleased"]))
         .key_typed(|s| event(s, &["keyTyped"]))
+        .focus_gained(|s| event(s, &["focusGained"]))
+        .focus_lost(|s| event(s, &["focusLost"]))
+        .mouse_entered(|s| event(s, &["mouseEntered"]))
+        .mouse_exited(|s| event(s, &["mouseExited"]))
+        .window_moved(|s| event(s, &["windowMoved"]))
+        .window_resized(|s| event(s, &["windowResized"]))
         .run();
 }
 
@@ -376,7 +383,8 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     let g = lua.globals();
 
     // ── size / dimensions ─────────────────────────────────────────────────
-    g.set("size", lua.create_function(|lua, (w, h): (LuaValue, LuaValue)| {
+    // size(w, h) or size(w, h, P3D); the renderer is kept for is2D() / is3D()
+    g.set("size", lua.create_function(|lua, (w, h, r): (LuaValue, LuaValue, LuaValue)| {
         let dim = |v: &LuaValue| -> LuaResult<u32> {
             let n = num(v, "size()")?;
             if !n.is_finite() || n < 1.0 {
@@ -386,6 +394,7 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         };
         let (w, h) = (dim(&w)?, dim(&h)?);
         processing::size(w, h);
+        lua.globals().raw_set("__renderer", r)?;
         lua.globals().raw_set("width",  w)?;
         lua.globals().raw_set("height", h)?;
         Ok(())
@@ -979,7 +988,8 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     g.set("noSmooth", lua.create_function(|_, ()| { processing::smooth(false); Ok(()) })?)?;
 
     // cursor / noCursor
-    g.set("cursor", lua.create_function(|_, ()| {
+    // cursor(), cursor(HAND), cursor(img, x, y): the engine has one cursor shape
+    g.set("cursor", lua.create_function(|_, _: LuaMultiValue| {
         processing::show_cursor(); Ok(())
     })?)?;
 

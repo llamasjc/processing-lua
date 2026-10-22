@@ -22,6 +22,8 @@ mlua = { version = "0.9", features = ["lua54", "vendored"] }
 # The drawing engine is RustMode's `processing` crate (sketchbook/modes/RustMode),
 # so Rust and Lua sketches share one renderer. It's imported as `engine`;
 # src/processing.rs adapts it to the calls the Lua bindings make.
+# regex replace for Table:replaceAll (the engine already depends on it)
+regex = { version = "1", default-features = false, features = ["std", "unicode-perl"] }
 engine = { package = "processing", path = "../../RustMode" }
 
 [features]
