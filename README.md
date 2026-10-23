@@ -68,6 +68,16 @@ drag), `windowMove`, `windowResize`, `printMatrix`, XML (`loadXML`,
 helpers (`append`, `subset`, `splice`, `sort`...), and `thread("work")`, which
 runs `work()` a step at a time between frames (`coroutine.yield()` for a step).
 
+## Processing's classes and events
+
+PVector, IntList, FloatList, StringList, IntDict, FloatDict, StringDict,
+Table, TableRow, XML, PShape and the matrix objects from `getMatrix()` have
+Processing's methods. Images and fonts are numbers that answer them too:
+`img:resize(w, h)`, `img.width`, `img:mask(m)`, `font:getSize()`.
+`focusGained`, `focusLost`, `mouseEntered`, `mouseExited`, `windowMoved`
+and `windowResized` are called like the other events. `PARITY.md` lists
+what was checked against Processing's Java API and what is left out.
+
 ## Building
 
 You need:
