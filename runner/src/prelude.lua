@@ -74,8 +74,8 @@ end
 
 -- ── More of Processing's constants ────────────────────────────────────────
 -- Processing's own values. X, Y and Z are left out: they would clash with a
--- sketch's own variables. cursor(HAND) and the other kinds only show the
--- cursor (the engine has no cursor shapes).
+-- sketch's own variables. cursor(HAND) and the other kinds change the
+-- cursor's look (WAIT is the arrow on the default renderer).
 ARGB, ALPHA = 2, 4
 ARROW, CROSS, TEXT, WAIT, HAND, MOVE = 0, 1, 2, 3, 12, 13
 VERTEX, BEZIER_VERTEX, QUADRATIC_VERTEX, CURVE_VERTEX, BREAK = 0, 1, 2, 3, 4

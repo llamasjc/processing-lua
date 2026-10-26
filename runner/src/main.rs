@@ -988,9 +988,14 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     g.set("noSmooth", lua.create_function(|_, ()| { processing::smooth(false); Ok(()) })?)?;
 
     // cursor / noCursor
-    // cursor(), cursor(HAND), cursor(img, x, y): the engine has one cursor shape
-    g.set("cursor", lua.create_function(|_, _: LuaMultiValue| {
-        processing::show_cursor(); Ok(())
+    // cursor(), cursor(HAND / CROSS / MOVE / TEXT / WAIT / ARROW); a picture
+    // (cursor(img, x, y)) just shows the cursor
+    g.set("cursor", lua.create_function(|_, args: LuaMultiValue| {
+        match args.iter().next() {
+            Some(LuaValue::Integer(k)) if args.len() == 1 => engine::cursor_kind(*k as u32),
+            _ => processing::show_cursor(),
+        }
+        Ok(())
     })?)?;
 
     g.set("noCursor", lua.create_function(|_, ()| {
