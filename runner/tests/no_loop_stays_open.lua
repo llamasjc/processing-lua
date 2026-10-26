@@ -1,5 +1,6 @@
 -- rc: 124
--- timeout: 3
+-- timeout: 10
+-- (long enough for libprocessing to start on a slow machine; it only has to stay open)
 -- stdout: draw 1
 -- stderr-lines: 0
 local draws = 0
