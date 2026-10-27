@@ -2283,6 +2283,24 @@ do
   function Font.descent(f) local _, _, _, d = fontInfo(f) return d end
   function Font.width(f, c) return charWidth(f, type(c) == "number" and utf8.char(c) or tostring(c)) end
   function Font.kern() return 0 end
+  -- getShape("a"): the character's outline as a shape, from the baseline
+  local fontOutline = __fontOutline
+  __fontOutline = nil
+  function Font.getShape(f, c)
+    local s = createShape()
+    s:beginShape()
+    for i, contour in ipairs(fontOutline(f, type(c) == "number" and utf8.char(c) or tostring(c))) do
+      if i > 1 then s:beginContour() end
+      for _, seg in ipairs(contour) do
+        if seg[1] == 0 then s:vertex(seg[2], seg[3])
+        elseif seg[1] == 2 then s:quadraticVertex(seg[2], seg[3], seg[4], seg[5])
+        else s:bezierVertex(seg[2], seg[3], seg[4], seg[5], seg[6], seg[7]) end
+      end
+      if i > 1 then s:endContour() end
+    end
+    s:endShape(CLOSE)
+    return s
+  end
   function Font.isSmooth() return true end
 
   -- pixels of each image, counted from 0 like the canvas `pixels`

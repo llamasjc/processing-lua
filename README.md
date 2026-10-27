@@ -49,13 +49,13 @@ filter shaders, run on the CPU by default and on the GPU with libprocessing.
 vertex shader with Processing's attributes, matrices and varyings, on both
 renderers (libprocessing needs the lp-fork).
 
-`clip(x, y, w, h)` / `noClip()`, `hint(DISABLE_DEPTH_TEST)` (software
-renderer), `link(url)`, `launch(...)`, `saveStream(target, source)`, and
+`clip(x, y, w, h)` / `noClip()`, `hint(DISABLE_DEPTH_TEST)`, `link(url)`, `launch(...)`, `saveStream(target, source)`, and
 `loadJSONObject`, `loadJSONArray`, `parseJSONObject`, `parseJSONArray`,
 `saveJSONObject`, `saveJSONArray` (nil when the file holds the other kind).
 `beginRecord("out.svg")` / `beginRecord(PDF, "out.pdf")` ... `endRecord()`,
 `windowRatio(w, h)` with `rwidth`, `rheight`, `rmouseX`, `rmouseY`,
-`attrib("name", ...)` for vertex shaders, and `createInput` / `createOutput`
+`attrib("name", ...)` for vertex shaders (whose `color` is each vertex's
+fill), `font:getShape(c)` for a character's outline, and `createInput` / `createOutput`
 (Lua file objects).
 
 Also: `spotLight`, `lightFalloff`, `lightSpecular`, `ambient`, `specular`,

@@ -77,6 +77,25 @@ pub fn register(lua: &Lua) -> LuaResult<()> {
         Ok(s.chars().next().map(|c| font_id(h).char_width(c)).unwrap_or(0.0) as f64)
     })?)?;
 
+    // a character's outline: contours of {code, numbers...} (see Font.getShape)
+    g.set("__fontOutline", lua.create_function(|lua, (h, s): (i64, LuaString)| {
+        let s = s.to_string_lossy();
+        let Some(c) = s.chars().next() else { return Ok(lua.create_table()?) };
+        let out = lua.create_table()?;
+        for (i, contour) in font_id(h).get_outline(c).iter().enumerate() {
+            let t = lua.create_table()?;
+            for (j, (op, v)) in contour.iter().enumerate() {
+                let seg = lua.create_table()?;
+                seg.set(1, *op as i64)?;
+                let n = match op { 0 => 2, 2 => 4, _ => 6 };
+                for (k, x) in v.iter().take(n).enumerate() { seg.set(k + 2, *x as f64)?; }
+                t.set(j + 1, seg)?;
+            }
+            out.set(i + 1, t)?;
+        }
+        Ok(out)
+    })?)?;
+
     // ── matrices ──────────────────────────────────────────────────────────
     // the current transform, sixteen values row by row
     g.set("__getMatrix", lua.create_function(|_, ()| Ok(engine::get_matrix().get_array().to_vec()))?)?;

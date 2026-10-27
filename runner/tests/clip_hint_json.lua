@@ -17,9 +17,8 @@ function draw()
   -- push/pop bring back the fill and the transform
   background(0) fill(0, 0, 255) push() fill(255) translate(100, 100) pop() rect(0, 0, 10, 10)
   local _, _, b = get(5, 5) assert(b == 255, "pop restored fill and transform: " .. b)
-  -- hint(DISABLE_DEPTH_TEST): later shapes draw over nearer ones (the
-  -- software renderer; libprocessing always tests depth)
-  if os.getenv("PROCESSING_RENDERER") ~= "libprocessing" then
+  -- hint(DISABLE_DEPTH_TEST): later shapes draw over nearer ones
+  do
   background(0) lights() hint(DISABLE_DEPTH_TEST)
   translate(60, 50, 0)
   fill(255, 0, 0) push() translate(0, 0, 20) box(30) pop()
