@@ -1128,7 +1128,7 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
         t.set("order", order)?;
         t.set("content", x.get_content())?;
         let kids = lua.create_table()?;
-        for (i, c) in x.get_children("").into_iter().enumerate() { kids.set(i + 1, xml_to_lua(lua, c)?)?; }
+        for (i, c) in x.get_children("").into_iter().enumerate() { kids.set(i + 1, xml_to_lua(lua, &c)?)?; }
         t.set("children", kids)?;
         Ok(t)
     }
