@@ -265,6 +265,9 @@ do
     for _ in text:sub(1, pos):gmatch("\n") do line = line + 1 end
     error("JSON line " .. line .. ": " .. what, 0)
   end
+  -- objects and arrays from JSON answer Processing's methods (getInt, setString,
+  -- size...) through these; they're still plain tables underneath
+  local JObj, JArr = { __name = "JSONObject" }, { __name = "JSONArray" }
   local escapes = { ['"'] = '"', ["\\"] = "\\", ["/"] = "/", b = "\b", f = "\f", n = "\n", r = "\r", t = "\t" }
   local decode_value
 
@@ -303,7 +306,7 @@ do
   local function decode_container(text, pos, depth, close, with_keys)
     if depth > 200 then decode_error(text, pos, "nested too deeply") end
     local out, i, n = {}, skip(text, pos + 1), 0
-    if text:sub(i, i) == close then return out, i + 1 end
+    if text:sub(i, i) == close then return setmetatable(out, with_keys and JObj or JArr), i + 1 end
     while true do
       local key
       if with_keys then
@@ -318,7 +321,7 @@ do
       if with_keys then out[key] = value else n = n + 1 out[n] = value end
       i = skip(text, i)
       local c = text:sub(i, i)
-      if c == close then return out, i + 1 end
+      if c == close then return setmetatable(out, with_keys and JObj or JArr), i + 1 end
       if c ~= "," then decode_error(text, i, "expected ',' or '" .. close .. "'") end
       i = skip(text, i + 1)
     end
@@ -371,10 +374,10 @@ do
       if seen[v] then error("toJSON(): a table contains itself", 0) end
       seen[v] = true
       local n = #v
-      local list = true
-      for k in pairs(v) do
+      local list = mt ~= JObj
+      if mt ~= JArr then for k in pairs(v) do
         if math.type(k) ~= "integer" or k < 1 or k > n then list = false break end
-      end
+      end end
       local pad, inner = "\n" .. string.rep("  ", indent), "\n" .. string.rep("  ", indent + 1)
       if list then
         if n == 0 then out[#out + 1] = "[]" else
@@ -438,13 +441,123 @@ do
     return true
   end
   -- Processing's names: an object (a table with keys) or an array (a list)
-  local function isArray(t) return type(t) == "table" and (#t > 0 or next(t) == nil) end
+  local function isArray(t)
+    if type(t) ~= "table" then return false end
+    local mt = getmetatable(t)
+    if mt == JArr then return true elseif mt == JObj then return false end
+    return #t > 0 or next(t) == nil
+  end
   function loadJSONObject(path) local v = loadJSON(path) if type(v) == "table" and not isArray(v) then return v end return nil end
   function loadJSONArray(path) local v = loadJSON(path) if isArray(v) then return v end return nil end
   function parseJSONObject(text) local ok, v = pcall(parseJSON, text) if ok and type(v) == "table" and not isArray(v) then return v end return nil end
   function parseJSONArray(text) local ok, v = pcall(parseJSON, text) if ok and isArray(v) then return v end return nil end
   function saveJSONObject(value, path) return saveJSON(path, value) end
   function saveJSONArray(value, path) return saveJSON(path, value) end
+
+  -- JSONObject() / JSONArray(): empty ones to fill. Keys are text; array
+  -- indexes count from 0 like Processing's. JSON null reads as nil.
+  -- o:getInt("id")  o:setString("name", "x")  o:hasKey("k")  o:keys()
+  -- a:getString(0)  a:append(5)  a:size()  a:getIntArray()  a:toIntList()
+  function JSONObject(t) return setmetatable(t or {}, JObj) end
+  function JSONArray(t) return setmetatable(t or {}, JArr) end
+  local function wrap(v)
+    if type(v) == "table" and getmetatable(v) == nil then
+      return setmetatable(v, isArray(v) and JArr or JObj)
+    end
+    return v
+  end
+  local function num(v) if type(v) == "string" then return tonumber(v) end return v end
+  local function int(v) v = num(v) if type(v) == "number" then return math.tointeger(v // 1) end return nil end
+  local function str(v) if v == nil then return nil end if type(v) == "table" then return toJSON(v) end return tostring(v) end
+  local function bool(v) if type(v) == "string" then return v:lower() == "true" end return v end
+  local function getter(conv, what)
+    return function(self, k, default)
+      local key = getmetatable(self) == JArr and math.type(k) == "integer" and k + 1 or k
+      local v = rawget(self, key)
+      if v == nil then
+        if default ~= nil then return default end
+        error(what .. "(" .. tostring(k) .. "): there's nothing there", 2)
+      end
+      local c = conv(v)
+      if c == nil then
+        if default ~= nil then return default end
+        error(what .. "(" .. tostring(k) .. "): " .. tostring(v) .. " isn't the right kind of value", 2)
+      end
+      return c
+    end
+  end
+  local function setter(conv)
+    return function(self, k, v)
+      local key = getmetatable(self) == JArr and k + 1 or k
+      rawset(self, key, conv(v))
+      return self
+    end
+  end
+  local function isTable(v) if type(v) == "table" then return wrap(v) end return nil end
+  for _, M in ipairs({ JObj, JArr }) do
+    M.__index = M
+    M.__tostring = function(self) return toJSON(self) end
+    M.getString = getter(str, "getString")
+    M.getInt = getter(int, "getInt")
+    M.getLong = M.getInt
+    M.getFloat = getter(num, "getFloat")
+    M.getDouble = M.getFloat
+    M.getBoolean = getter(bool, "getBoolean")
+    M.getJSONObject = getter(isTable, "getJSONObject")
+    M.getJSONArray = getter(isTable, "getJSONArray")
+    M.get = function(self, k) return wrap(rawget(self, getmetatable(self) == JArr and k + 1 or k)) end
+    M.setString = setter(tostring)
+    M.setInt = setter(function(v) return math.tointeger(v // 1) end)
+    M.setLong = M.setInt
+    M.setFloat = setter(function(v) return v + 0.0 end)
+    M.setDouble = M.setFloat
+    M.setBoolean = setter(function(v) return v and true or false end)
+    M.setJSONObject = setter(wrap)
+    M.setJSONArray = setter(wrap)
+    M.set = setter(wrap)
+    M.isNull = function(self, k) return rawget(self, getmetatable(self) == JArr and k + 1 or k) == nil end
+    M.format = function(self, indent)
+      local text = toJSON(self)
+      if indent == -1 then text = text:gsub("\n%s*", "") end
+      return text
+    end
+    M.toString = M.format
+    M.save = function(self, path) return saveJSON(path, self) end
+  end
+  JObj.hasKey = function(self, k) return rawget(self, k) ~= nil end
+  JObj.keys = function(self)
+    local out = {}
+    for k in pairs(self) do out[#out + 1] = k end
+    table.sort(out)
+    return out
+  end
+  JObj.size = function(self) local n = 0 for _ in pairs(self) do n = n + 1 end return n end
+  JObj.remove = function(self, k) local v = rawget(self, k) rawset(self, k, nil) return v end
+  JArr.size = function(self) return #self end
+  JArr.append = function(self, v) rawset(self, #self + 1, wrap(v)) return self end
+  JArr.remove = function(self, i) return table.remove(self, i + 1) end
+  local function arrayOf(conv)
+    return function(self) local out = {} for i = 1, #self do out[i] = conv(self[i]) end return out end
+  end
+  JArr.getStringArray = arrayOf(str)
+  JArr.getIntArray = arrayOf(int)
+  JArr.getLongArray = JArr.getIntArray
+  JArr.getFloatArray = arrayOf(num)
+  JArr.getDoubleArray = JArr.getFloatArray
+  JArr.getBooleanArray = arrayOf(bool)
+  for _, n in ipairs({ "String", "Int", "Long", "Float", "Double", "Boolean" }) do
+    JArr["to" .. n .. "Array"] = JArr["get" .. n .. "Array"]
+  end
+  JArr.toIntList = function(self) return IntList(self:getIntArray()) end
+  JArr.toLongList = JArr.toIntList
+  JArr.toFloatList = function(self) return FloatList(self:getFloatArray()) end
+  JArr.toDoubleList = JArr.toFloatList
+  JArr.toStringList = function(self) return StringList(self:getStringArray()) end
+  JObj.getIntList = function(self, k) return self:getJSONArray(k):toIntList() end
+  JObj.getLongList = JObj.getIntList
+  JObj.getFloatList = function(self, k) return self:getJSONArray(k):toFloatList() end
+  JObj.getDoubleList = JObj.getFloatList
+  JObj.getStringList = function(self, k) return self:getJSONArray(k):toStringList() end
 end
 
 -- ── bytes and conversions ─────────────────────────────────────────────────
@@ -2242,6 +2355,8 @@ do
   IntDict = makeDict("IntDict", toInt, true)
   FloatDict = makeDict("FloatDict", toFloat, true)
   StringDict = makeDict("StringDict", tostring, false)
+  -- Lua numbers are already 64-bit, so Long and Double are the same lists
+  LongList, DoubleList, LongDict, DoubleDict = IntList, FloatList, IntDict, FloatDict
 end
 
 -- ── Images and fonts as objects ───────────────────────────────────────────
@@ -2460,6 +2575,24 @@ do
     end
     function M:multX(x, y, z) return self:mult(x, y, z).x end
     function M:multY(x, y, z) return self:mult(x, y, z).y end
+    function M:multZ(x, y, z) return self:mult(x, y, z).z end
+    -- cmult(v): the point through the transposed matrix, divided by w
+    function M:cmult(v, y, z)
+      local x = type(v) == "table" and v.x or v
+      if type(v) == "table" then y, z = v.y, v.z end
+      local r = full(self)
+      z = z or 0
+      local w = r[0][3] * x + r[1][3] * y + r[2][3] * z + r[3][3]
+      local o = createVector(r[0][0] * x + r[1][0] * y + r[2][0] * z + r[3][0],
+                             r[0][1] * x + r[1][1] * y + r[2][1] * z + r[3][1],
+                             r[0][2] * x + r[1][2] * y + r[2][2] * z + r[3][2])
+      if w ~= 0 and w ~= 1 then o.x, o.y, o.z = o.x / w, o.y / w, o.z / w end
+      return o
+    end
+    function M:multW(x, y, z)
+      local r = full(self)
+      return r[3][0] * x + r[3][1] * y + r[3][2] * (z or 0) + r[3][3]
+    end
     function M:print() print(tostring(self)) end
     M.__tostring = function(m)
       local r, lines = full(m), {}
@@ -2556,4 +2689,19 @@ do
     if select("#", ...) == 5 then return set({ m, ... }, true) end
     return apply3(m, ...)
   end
+end
+
+-- surface:setTitle("x"), surface:setResizable(true)...: Processing's older
+-- names for the window calls. setVisible and setAlwaysOnTop do nothing.
+do
+  local function call(f) return function(a, ...) if a == surface then return f(...) end return f(a, ...) end end
+  surface = {
+    setTitle = call(function(t) windowTitle(t) end),
+    setResizable = call(function(on) windowResizable(on) end),
+    setSize = call(function(w, h) windowResize(w, h) end),
+    setLocation = call(function(x, y) windowMove(x, y) end),
+    setFrameRate = call(function(f) frameRate(f) end),
+    setVisible = function() end,
+    setAlwaysOnTop = function() end,
+  }
 end
