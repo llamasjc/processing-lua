@@ -5,6 +5,7 @@ function draw()
   local f = createFont("DejaVu Sans", 100)
   if f == 0 then f = createFont("sans-serif", 100) end
   if f == 0 then print("ok") exit() return end   -- no font on this machine
+  assert(f:getGlyphCount() > 50, "glyph count: " .. f:getGlyphCount())
   local o = f:getShape("O")
   assert(o:getVertexCount() >= 2, "outline has its two contours")
   background(0) noStroke() fill(255)

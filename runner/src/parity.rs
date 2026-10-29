@@ -77,6 +77,8 @@ pub fn register(lua: &Lua) -> LuaResult<()> {
         Ok(s.chars().next().map(|c| font_id(h).char_width(c)).unwrap_or(0.0) as f64)
     })?)?;
 
+    g.set("__fontGlyphCount", lua.create_function(|_, h: i64| Ok(font_id(h).get_glyph_count() as i64))?)?;
+
     // a character's outline: contours of {code, numbers...} (see Font.getShape)
     g.set("__fontOutline", lua.create_function(|lua, (h, s): (i64, LuaString)| {
         let s = s.to_string_lossy();

@@ -2399,8 +2399,9 @@ do
   function Font.width(f, c) return charWidth(f, type(c) == "number" and utf8.char(c) or tostring(c)) end
   function Font.kern() return 0 end
   -- getShape("a"): the character's outline as a shape, from the baseline
-  local fontOutline = __fontOutline
-  __fontOutline = nil
+  local fontOutline, glyphCount = __fontOutline, __fontGlyphCount
+  __fontOutline, __fontGlyphCount = nil, nil
+  function Font.getGlyphCount(f) return glyphCount(f) end
   function Font.getShape(f, c)
     local s = createShape()
     s:beginShape()
