@@ -11,7 +11,10 @@ function setup() size(120, 100) end
 function draw()
   if frameCount == 5 then windowMove(40, 60) end
   if frameCount == 10 then windowResize(160, 90) end
-  if frameCount == 30 then
+  -- the window manager can report the move late on a slow machine, so wait
+  -- for both events and only fail after about 5 seconds
+  if frameCount > 10 and moved >= 1 and resized >= 1 then print("ok") exit() end
+  if frameCount == 300 then
     assert(resized >= 1, "windowResized: " .. resized)
     assert(moved >= 1, "windowMoved: " .. moved)
     print("ok") exit()
