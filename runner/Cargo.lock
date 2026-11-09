@@ -5268,7 +5268,6 @@ dependencies = [
 [[package]]
 name = "processing_core"
 version = "0.0.5"
-source = "git+https://github.com/processing/libprocessing?rev=aaa0215fabda64ce072ec3da3d524e884bf10e20#aaa0215fabda64ce072ec3da3d524e884bf10e20"
 dependencies = [
  "bevy",
  "raw-window-handle",
@@ -5279,7 +5278,6 @@ dependencies = [
 [[package]]
 name = "processing_glfw"
 version = "0.0.5"
-source = "git+https://github.com/processing/libprocessing?rev=aaa0215fabda64ce072ec3da3d524e884bf10e20#aaa0215fabda64ce072ec3da3d524e884bf10e20"
 dependencies = [
  "bevy",
  "glfw",
@@ -5292,7 +5290,6 @@ dependencies = [
 [[package]]
 name = "processing_input"
 version = "0.0.5"
-source = "git+https://github.com/processing/libprocessing?rev=aaa0215fabda64ce072ec3da3d524e884bf10e20#aaa0215fabda64ce072ec3da3d524e884bf10e20"
 dependencies = [
  "bevy",
  "processing_core",
@@ -5301,7 +5298,6 @@ dependencies = [
 [[package]]
 name = "processing_render"
 version = "0.0.5"
-source = "git+https://github.com/processing/libprocessing?rev=aaa0215fabda64ce072ec3da3d524e884bf10e20#aaa0215fabda64ce072ec3da3d524e884bf10e20"
 dependencies = [
  "bevy",
  "bevy_naga_reflect",
