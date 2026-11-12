@@ -54,8 +54,12 @@ for t in "$HERE"/*.lua; do
   envs=()
   while IFS= read -r e; do [ -n "$e" ] && envs+=("$e"); done < <(directive "$t" env)
 
-  ( cd "$dir" && env LUAMODE_TESTS="$HERE" ${envs[@]+"${envs[@]}"} timeout "$secs" "$RUNNER" "$t" >out.txt 2>err.txt )
+  ( cd "$dir" && env LUAMODE_TESTS="$HERE" ${envs[@]+"${envs[@]}"} timeout -k 5 "$secs" "$RUNNER" "$t" >out.txt 2>err.txt )
   rc=$?
+  # The next test starts only once this runner is really gone: one still
+  # tearing down its window and GPU (the libprocessing runner takes a while
+  # on a slow machine) slows the next sketch down, sometimes past its time.
+  for _ in $(seq 50); do pgrep -f -- "$RUNNER" >/dev/null || break; sleep 0.2; done
 
   why=""
   [ "$rc" = "$want_rc" ] || why="exit status $rc, expected $want_rc"
