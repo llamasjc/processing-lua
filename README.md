@@ -208,6 +208,10 @@ local time. It uses the renderer picked in the toolbar; a libprocessing
 export needs GLFW 3.4 and Vulkan where it runs. Like Processing's, an
 export is for the platform it was made on.
 
+File > Export as PDEZ zips the sketch folder next to it as `<sketch>.pdez`,
+like Processing's: open the file in Processing to install the sketch. The
+platform folders Export Application made are left out of it.
+
 `loadStrings` and `loadJSON` look in `data/` too, like Processing's (images,
 XML, tables and bytes already did).
 

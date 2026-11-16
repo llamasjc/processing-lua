@@ -163,21 +163,24 @@ public class LuaEditor extends Editor {
     @Override
     public JMenu buildFileMenu() {
         // like Processing's: Ctrl+Shift+E
-        JMenuItem app = new JMenuItem("Export Application");
+        JMenuItem app = new JMenuItem("Export Application...");
         app.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_E,
             java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()
             | java.awt.event.InputEvent.SHIFT_DOWN_MASK));
         app.addActionListener(this::handleExportApplication);
+        JMenuItem pdez = new JMenuItem("Export as PDEZ...");
+        pdez.addActionListener(this::handleExportPdez);
         JMenuItem roblox = new JMenuItem("Export for Roblox...");
         roblox.addActionListener(this::handleRobloxExport);
         JMenuItem love2d = new JMenuItem("Export for LOVE2D...");
         love2d.addActionListener(this::handleLove2dExport);
         try {
-            return buildFileMenu(new JMenuItem[] { app, roblox, love2d });
+            return buildFileMenu(new JMenuItem[] { app, pdez, roblox, love2d });
         } catch (Throwable t) {
             System.err.println("[LuaMode] File menu fallback: " + t);
             JMenu file = new JMenu("File");
             file.add(app);
+            file.add(pdez);
             file.add(roblox);
             file.add(love2d);
             return file;
@@ -348,7 +351,25 @@ public class LuaEditor extends Editor {
         try {
             File dest = new LuaBuild(sketch, luaMode.getFolder()).exportApplication();
             statusNotice("Exported to " + sketch.getName() + "/" + dest.getName() + "/");
-            processing.app.Platform.openFolder(dest);
+            AppExport.show(dest);
+        } catch (Exception ex) {
+            statusError("Export failed: " + ex.getMessage());
+            ex.printStackTrace();
+        }
+    }
+
+    private void handleExportPdez(ActionEvent e) {
+        if (sketch.isUntitled() || sketch.isReadOnly()) {
+            statusError("Save the sketch first.");
+            return;
+        }
+        if (sketch.isModified()) {
+            try { sketch.save(); } catch (Exception ex) { statusError("Couldn't save: " + ex.getMessage()); return; }
+        }
+        try {
+            File pdez = AppExport.pdez(sketch.getFolder());
+            statusNotice("Exported " + pdez.getName());
+            AppExport.show(pdez.getParentFile());
         } catch (Exception ex) {
             statusError("Export failed: " + ex.getMessage());
             ex.printStackTrace();
