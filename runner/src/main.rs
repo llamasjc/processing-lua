@@ -988,11 +988,16 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     g.set("noSmooth", lua.create_function(|_, ()| { processing::smooth(false); Ok(()) })?)?;
 
     // cursor / noCursor
-    // cursor(), cursor(HAND / CROSS / MOVE / TEXT / WAIT / ARROW); a picture
-    // (cursor(img, x, y)) just shows the cursor
+    // cursor(), cursor(HAND / CROSS / MOVE / TEXT / WAIT / ARROW), or a
+    // picture: cursor(img) points with its middle, cursor(img, x, y) with
+    // that pixel. Image numbers start at 65536, so they never look like a kind.
     g.set("cursor", lua.create_function(|_, args: LuaMultiValue| {
-        match args.iter().next() {
-            Some(LuaValue::Integer(k)) if args.len() == 1 => engine::cursor_kind(*k as u32),
+        let n = |v: Option<&LuaValue>| match v { Some(LuaValue::Integer(i)) => Some(*i as f64), Some(LuaValue::Number(f)) => Some(*f), _ => None };
+        let first = n(args.get(0));
+        match first {
+            Some(k) if k >= 65536.0 && args.len() >= 3 => engine::cursor_image_at(k as u64, n(args.get(1)).unwrap_or(0.0) as f32, n(args.get(2)).unwrap_or(0.0) as f32),
+            Some(k) if k >= 65536.0 => engine::cursor_image(k as u64),
+            Some(k) if args.len() == 1 => engine::cursor_kind(k as u32),
             _ => processing::show_cursor(),
         }
         Ok(())
