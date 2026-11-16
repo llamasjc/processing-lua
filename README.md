@@ -195,6 +195,22 @@ LuaMode/
     <platform>/           Compiled tree-sitter-lua grammar (.so / .dylib / .dll)
 ```
 
+## Export Application
+
+File > Export Application (Ctrl+Shift+E) makes a standalone program, laid
+out like Processing's own export: a folder named for this platform
+(`linux-amd64`, `macos-aarch64`, `windows-amd64`...) inside the sketch
+folder, holding a launcher named after the sketch (a shell script; `.bat`
+on Windows), `lib/` with the runner and the sketch (all tabs in one
+`sketch.lua`), and a copy of `data/`. The launcher starts it from its own
+folder, so `data/` files are found wherever the export is moved, and in
+local time. It uses the renderer picked in the toolbar; a libprocessing
+export needs GLFW 3.4 and Vulkan where it runs. Like Processing's, an
+export is for the platform it was made on.
+
+`loadStrings` and `loadJSON` look in `data/` too, like Processing's (images,
+XML, tables and bytes already did).
+
 ## Roblox
 
 Open your sketch in the Processing IDE and choose **Sketch > Export for Roblox...**

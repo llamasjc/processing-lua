@@ -162,15 +162,22 @@ public class LuaEditor extends Editor {
     // what caused the removeImportMenu NPE.
     @Override
     public JMenu buildFileMenu() {
+        // like Processing's: Ctrl+Shift+E
+        JMenuItem app = new JMenuItem("Export Application");
+        app.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_E,
+            java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()
+            | java.awt.event.InputEvent.SHIFT_DOWN_MASK));
+        app.addActionListener(this::handleExportApplication);
         JMenuItem roblox = new JMenuItem("Export for Roblox...");
         roblox.addActionListener(this::handleRobloxExport);
         JMenuItem love2d = new JMenuItem("Export for LOVE2D...");
         love2d.addActionListener(this::handleLove2dExport);
         try {
-            return buildFileMenu(new JMenuItem[] { roblox, love2d });
+            return buildFileMenu(new JMenuItem[] { app, roblox, love2d });
         } catch (Throwable t) {
             System.err.println("[LuaMode] File menu fallback: " + t);
             JMenu file = new JMenu("File");
+            file.add(app);
             file.add(roblox);
             file.add(love2d);
             return file;
@@ -328,6 +335,25 @@ public class LuaEditor extends Editor {
 
     // ── Export menu ───────────────────────────────────────────────────────
 
+
+    private void handleExportApplication(ActionEvent e) {
+        if (sketch.isUntitled() || sketch.isReadOnly()) {
+            statusError("Save the sketch first: the export goes inside its folder.");
+            return;
+        }
+        if (sketch.isModified()) {
+            try { sketch.save(); } catch (Exception ex) { statusError("Couldn't save: " + ex.getMessage()); return; }
+        }
+        statusNotice("Exporting...");
+        try {
+            File dest = new LuaBuild(sketch, luaMode.getFolder()).exportApplication();
+            statusNotice("Exported to " + sketch.getName() + "/" + dest.getName() + "/");
+            processing.app.Platform.openFolder(dest);
+        } catch (Exception ex) {
+            statusError("Export failed: " + ex.getMessage());
+            ex.printStackTrace();
+        }
+    }
 
     private void handleRobloxExport(ActionEvent e) {
         JFileChooser fc = new JFileChooser(sketch.getFolder());

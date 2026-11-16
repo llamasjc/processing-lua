@@ -204,7 +204,7 @@ function splitTokens(s, delims)
 end
 -- loadStrings("notes.txt") -> a list of lines, or nil if the file can't be read
 function loadStrings(path)
-  local f = io.open(path, "r")
+  local f = io.open(path, "r") or io.open("data/" .. tostring(path), "r")
   if not f then
     io.stderr:write("loadStrings: could not open " .. tostring(path) .. "\n")
     return nil
@@ -414,7 +414,7 @@ do
   end
 
   function loadJSON(path)
-    local f = io.open(path, "rb")
+    local f = io.open(path, "rb") or io.open("data/" .. tostring(path), "rb")
     if not f then
       io.stderr:write("loadJSON: could not open " .. tostring(path) .. "\n")
       return nil

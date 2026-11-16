@@ -102,6 +102,29 @@ public final class LuaBuild {
         }
     }
 
+    /**
+     * File > Export Application: the runner, the sketch (all tabs in one file)
+     * and its data folder, in a folder named for this platform inside the
+     * sketch folder, with a launcher named after the sketch.
+     *
+     * @return the export folder
+     */
+    public File exportApplication() throws IOException {
+        String source = buildSource();
+        String runner = resolveRunner();
+        if (runner == null) {
+            throw new IOException(Renderer.libprocessing()
+                ? "the libprocessing runner isn't built yet (LuaMode/runner/build-libprocessing.sh)"
+                : "the sketch runner (luamode-runner) is missing for " + LuaMode.detectPlatform());
+        }
+        File folder = sketch.getFolder();
+        File dest = AppExport.write(folder, sketch.getName(), new File(folder, "data"),
+            AppExport.variant(LuaMode.detectPlatform()), new File(runner),
+            new String[] { "lib/sketch.lua" }, Renderer.libprocessing() ? "libprocessing" : null);
+        Files.writeString(new File(dest, "lib/sketch.lua").toPath(), source, StandardCharsets.UTF_8);
+        return dest;
+    }
+
     /** Stops the sketch if it is running. Safe to call from any thread, any number of times. */
     public void kill() {
         Process p = proc;
