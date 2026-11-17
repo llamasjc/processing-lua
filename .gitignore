@@ -3,6 +3,8 @@ build/
 native/.build/
 runner/target/
 runner/target-libprocessing/
+runner/target-libprocessing-upstream/
+__pycache__/
 mode/*.jar
 mode/runner/
 lib/**/*.so

@@ -184,6 +184,8 @@ task buildRunner(type: Exec) {
 modeJar.configure {
     from("mode/runner") {
         into 'runner'
+        // the libprocessing runner is big; it ships as a file in the zip only
+        exclude '*-libprocessing/**'
     }
 }
 modeJar.dependsOn buildRunner
