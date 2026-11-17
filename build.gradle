@@ -133,6 +133,9 @@ task modeJar(type: Jar) {
 }
 
 build.dependsOn modeJar
+// `gradle jar` makes the mode jar too, like RustMode's: Processing loads
+// mode/LuaMode.jar, not the plain jar in build/libs
+jar.finalizedBy modeJar
 
 // ── Build luamode-runner (Rust binary) ────────────────────────────────────
 //
