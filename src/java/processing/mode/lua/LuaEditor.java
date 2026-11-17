@@ -218,7 +218,7 @@ public class LuaEditor extends Editor {
     public JMenu buildHelpMenu() {
         JMenu help = new JMenu("Help");
         JMenuItem site = new JMenuItem("Lua Mode on GitHub");
-        site.addActionListener(e -> openUrl("https://github.com/pepc84/LuaMode"));
+        site.addActionListener(e -> openUrl("https://github.com/llamasjc/LuaMode"));
         help.add(site);
         JMenuItem ref = new JMenuItem("Lua 5.4 Reference Manual");
         ref.addActionListener(e -> openUrl("https://www.lua.org/manual/5.4/"));
