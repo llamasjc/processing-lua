@@ -37,6 +37,7 @@ public class LuaMode extends Mode {
 
     public LuaMode(Base base, File folder) {
         super(base, folder);
+        clearQuarantine(folder);
         preloadTreeSitterNative(folder);
         extractRunner();
         // Warm up the parser pool in the background. Skip it if the native lib
@@ -189,6 +190,30 @@ public class LuaMode extends Mode {
     }
 
     // ── Shared platform detection ─────────────────────────────────────────
+
+    /**
+     * macOS marks everything from a downloaded zip as quarantined and then
+     * won't start the runner in it. Cleared once, when the mode loads; the
+     * runners are also made executable again (unzip tools don't all keep that).
+     */
+    private static void clearQuarantine(File folder) {
+        String os = System.getProperty("os.name", "").toLowerCase();
+        File runners = new File(folder, "mode/runner");
+        File[] dirs = runners.listFiles(File::isDirectory);
+        if (dirs != null && !os.contains("win")) {
+            for (File d : dirs) {
+                File r = new File(d, "luamode-runner");
+                if (r.isFile() && !r.canExecute()) r.setExecutable(true, false);
+            }
+        }
+        if (!os.contains("mac")) return;
+        new Thread(() -> {
+            try {
+                new ProcessBuilder("xattr", "-dr", "com.apple.quarantine", folder.getAbsolutePath())
+                    .redirectErrorStream(true).start().waitFor();
+            } catch (Exception ignored) {}
+        }, "luamode-xattr").start();
+    }
 
     static String detectPlatform() {
         String os   = System.getProperty("os.name", "").toLowerCase();

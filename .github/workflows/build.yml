@@ -77,7 +77,8 @@ jobs:
       fail-fast: false      # one platform failing shouldn't hide the others' results
       matrix:
         include:
-          - { os: ubuntu-latest,  platform: linux-x86_64,   arch: x86_64 }
+          - { os: ubuntu-22.04,     platform: linux-x86_64,   arch: x86_64 }   # 22.04: runs on older glibc too
+          - { os: ubuntu-22.04-arm, platform: linux-aarch64,  arch: aarch64 }
           - { os: macos-latest,   platform: macos-aarch64,  arch: aarch64 }
           - { os: macos-latest,   platform: macos-x86_64,   arch: x86_64 }   # cross-built on Apple Silicon
           - { os: windows-latest, platform: windows-x86_64, arch: x86_64 }   # MinGW g++, static runtime
@@ -116,9 +117,12 @@ jobs:
       fail-fast: false      # one platform failing shouldn't cancel the others
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04          # built against an older glibc, so it runs on older Linux too
             target: x86_64-unknown-linux-gnu
             platform: linux-x86_64
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            platform: linux-aarch64
           - os: macos-latest
             target: x86_64-apple-darwin
             platform: macos-x86_64
@@ -175,6 +179,23 @@ jobs:
           tests/input.sh
           tests/ide_gone.sh
 
+      # The examples in a real window on every platform, so a runner that
+      # doesn't start on macOS or Windows is found here, not by a user.
+      - name: Smoke test (macOS, Windows, ARM Linux)
+        if: runner.os != 'Linux' || matrix.platform == 'linux-aarch64'
+        shell: bash
+        env:
+          RUNNER: ${{ github.workspace }}/runner/target/${{ matrix.target }}/release/luamode-runner${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get install -y -q xvfb fonts-dejavu-core
+            xvfb-run -a runner/tests/smoke.sh
+          elif [ "$RUNNER_OS" = macOS ] && [ "$(uname -m)" != "$(echo ${{ matrix.target }} | cut -d- -f1 | sed 's/aarch64/arm64/')" ]; then
+            echo "built for another CPU than this machine; not run here"
+          else
+            runner/tests/smoke.sh
+          fi
+
       - name: Upload binary
         uses: actions/upload-artifact@v6
         with:
@@ -192,7 +213,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-22.04,   platform: linux-x86_64 }
+          - { os: ubuntu-22.04,     platform: linux-x86_64 }
+          - { os: ubuntu-22.04-arm, platform: linux-aarch64 }
           - { os: macos-15-intel, platform: macos-x86_64 }
           - { os: macos-latest,   platform: macos-aarch64 }
           - { os: windows-latest, platform: windows-x86_64 }
@@ -281,6 +303,20 @@ jobs:
           esac
           ls $R | grep -i glfw || true
 
+      - name: Smoke test
+        shell: bash
+        continue-on-error: true   # GPU drivers on CI machines vary; the result is in the log
+        env:
+          RUNNER: ${{ github.workspace }}/runner/target-libprocessing/release/luamode-runner${{ runner.os == 'Windows' && '.exe' || '' }}
+          PROCESSING_RENDERER: libprocessing
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get install -y -q xvfb mesa-vulkan-drivers fonts-dejavu-core
+            LD_LIBRARY_PATH=$(dirname "$RUNNER") xvfb-run -a runner/tests/smoke.sh
+          else
+            DYLD_LIBRARY_PATH=$(dirname "$RUNNER") PATH="$(dirname "$RUNNER"):$PATH" runner/tests/smoke.sh
+          fi
+
       - name: Upload binary
         uses: actions/upload-artifact@v6
         with:
@@ -339,7 +375,7 @@ jobs:
 
       - name: Check every platform's native lib is there
         run: |
-          for f in linux-x86_64/libjava-tree-sitter.so macos-aarch64/libjava-tree-sitter.dylib \
+          for f in linux-x86_64/libjava-tree-sitter.so linux-aarch64/libjava-tree-sitter.so macos-aarch64/libjava-tree-sitter.dylib \
                    macos-x86_64/libjava-tree-sitter.dylib windows-x86_64/java-tree-sitter.dll; do
             test -s "lib/$f" || { echo "missing lib/$f"; exit 1; }
             echo "ok lib/$f"
@@ -354,16 +390,19 @@ jobs:
       - name: Stage runner binaries
         run: |
           mkdir -p mode/runner/linux-x86_64
+          mkdir -p mode/runner/linux-aarch64
           mkdir -p mode/runner/macos-x86_64
           mkdir -p mode/runner/macos-aarch64
           mkdir -p mode/runner/windows-x86_64
 
           cp runners/runner-linux-x86_64/luamode-runner   mode/runner/linux-x86_64/
+          cp runners/runner-linux-aarch64/luamode-runner  mode/runner/linux-aarch64/
           cp runners/runner-macos-x86_64/luamode-runner   mode/runner/macos-x86_64/
           cp runners/runner-macos-aarch64/luamode-runner  mode/runner/macos-aarch64/
           cp runners/runner-windows-x86_64/luamode-runner.exe mode/runner/windows-x86_64/
 
           chmod +x mode/runner/linux-x86_64/luamode-runner
+          chmod +x mode/runner/linux-aarch64/luamode-runner
           chmod +x mode/runner/macos-x86_64/luamode-runner
           chmod +x mode/runner/macos-aarch64/luamode-runner
 
@@ -376,7 +415,7 @@ jobs:
       - name: Stage libprocessing runners
         shell: bash
         run: |
-          for p in linux-x86_64 macos-x86_64 macos-aarch64 windows-x86_64; do
+          for p in linux-x86_64 linux-aarch64 macos-x86_64 macos-aarch64 windows-x86_64; do
             [ -d "lp-runners/lpr-$p" ] || { echo "no libprocessing runner for $p"; continue; }
             mkdir -p "mode/runner/$p-libprocessing"
             cp lp-runners/lpr-$p/* "mode/runner/$p-libprocessing/"
