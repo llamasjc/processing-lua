@@ -29,8 +29,12 @@ step xdotool mousemove --window "$WIN" 80 90
 step xdotool mousedown 1
 step xdotool mousemove --window "$WIN" 120 100
 step xdotool mouseup 1
-# a drag isn't a click (as in Java); a press and release in one spot is
-step xdotool click 1
+# a drag isn't a click (as in Java); a press and release in one spot is.
+# Held for 0.1s like a real click: the CPU window reads the button once a
+# frame, so xdotool's instant click (down and up in the same millisecond)
+# would never be seen.
+step xdotool mousedown 1
+step xdotool mouseup 1
 step xdotool click 4
 step xdotool key a
 step xdotool key shift+b
