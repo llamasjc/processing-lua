@@ -82,9 +82,8 @@ public final class LuaBuild {
         RunLog.log("build: runner = " + runner);
         if (runner == null && Renderer.libprocessing()) {
             return List.of(new LuaProblem(-1, -1,
-                "libprocessing isn't in this copy of Lua Mode (LuaMode-lite.zip is CPU only). "
-                + "It comes with LuaMode.zip: unzip that over this one and restart Processing. "
-                + "Or pick CPU in the toolbar.",
+                "The libprocessing runner isn't built yet. Run LuaMode/runner/build-libprocessing.sh "
+                + "(it uses ~/sketchbook/libprocessing when it's there), or pick CPU in the toolbar.",
                 LuaProblem.Severity.ERROR));
         }
         if (runner == null) {

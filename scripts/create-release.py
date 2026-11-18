@@ -71,13 +71,3 @@ if __name__ == "__main__":
     out = ROOT.parent / "LuaMode.zip"
     shutil.copy(src, out)
     print(f"\n{out}  ({out.stat().st_size // (1024 * 1024)} MB)")
-    # LuaMode-lite.zip: the same without the libprocessing runners, CPU only.
-    # LuaMode.zip stays a superset, so switching is installing it over this one.
-    import zipfile
-    lite = ROOT.parent / "LuaMode-lite.zip"
-    with zipfile.ZipFile(out) as a, zipfile.ZipFile(lite, "w", zipfile.ZIP_DEFLATED) as b:
-        for info in a.infolist():
-            if "-libprocessing/" in info.filename and "/runner/" in info.filename:
-                continue
-            b.writestr(info, a.read(info))
-    print(f"{lite}  ({lite.stat().st_size // (1024 * 1024)} MB, CPU only)")

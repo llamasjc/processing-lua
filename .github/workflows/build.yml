@@ -428,27 +428,11 @@ jobs:
           PROCESSING_DIR: ${{ github.workspace }}/processing
         run: gradle dist --no-daemon
 
-      # LuaMode-lite.zip: the same without the libprocessing runners (CPU only)
-      - name: Build lite ZIP
-        run: |
-          python3 - <<'PY'
-          import zipfile
-          src = "build/distributions/LuaMode.zip"
-          with zipfile.ZipFile(src) as a, zipfile.ZipFile("build/distributions/LuaMode-lite.zip", "w", zipfile.ZIP_DEFLATED) as b:
-              for i in a.infolist():
-                  if "/runner/" in i.filename and "-libprocessing/" in i.filename:
-                      continue
-                  b.writestr(i, a.read(i))
-          PY
-          ls -lh build/distributions/
-
       - name: Upload ZIP
         uses: actions/upload-artifact@v6
         with:
           name: LuaMode-dist
-          path: |
-            build/distributions/LuaMode.zip
-            build/distributions/LuaMode-lite.zip
+          path: build/distributions/LuaMode.zip
 
   # ── GitHub Release (on v* tags) ──────────────────────────────────────────
   # The ZIP has the mode jar, all four native libs and all four runners, so
