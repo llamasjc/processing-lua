@@ -29,6 +29,8 @@ step xdotool mousemove --window "$WIN" 80 90
 step xdotool mousedown 1
 step xdotool mousemove --window "$WIN" 120 100
 step xdotool mouseup 1
+# a drag isn't a click (as in Java); a press and release in one spot is
+step xdotool click 1
 step xdotool click 4
 step xdotool key a
 step xdotool key shift+b
@@ -65,5 +67,6 @@ keyTyped${TAB}[ ]
 keyPressed${TAB}[$(printf '\033')]${TAB}27
 EOF2
 [ "$(grep -c '^keyPressed' "$OUT")" = 8 ] || { echo "FAIL: expected 8 keyPressed, got $(grep -c '^keyPressed' "$OUT")"; fail=1; }
-[ "$(grep -c '^mousePressed' "$OUT")" = 1 ] || { echo "FAIL: expected 1 mousePressed"; fail=1; }
+[ "$(grep -c '^mousePressed' "$OUT")" = 2 ] || { echo "FAIL: expected 2 mousePressed"; fail=1; }
+[ "$(grep -c '^mouseClicked' "$OUT")" = 1 ] || { echo "FAIL: expected 1 mouseClicked (the drag isn't one), got $(grep -c '^mouseClicked' "$OUT")"; fail=1; }
 if [ $fail = 0 ]; then echo "ok    input events"; else sed 's/^/        | /' "$OUT"; exit 1; fi
