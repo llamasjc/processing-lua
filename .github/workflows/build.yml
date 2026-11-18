@@ -113,6 +113,7 @@ jobs:
     name: Runner (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false      # one platform failing shouldn't cancel the others
       matrix:
         include:
           - os: ubuntu-latest
@@ -168,7 +169,7 @@ jobs:
         env:
           RUNNER: ${{ github.workspace }}/runner/target/${{ matrix.target }}/release/luamode-runner
         run: |
-          sudo apt-get install -y -q xvfb xdotool fonts-dejavu-core
+          sudo apt-get install -y -q xvfb xdotool fonts-dejavu-core ffmpeg
           tests/run.sh
           tests/examples.sh
           tests/input.sh
