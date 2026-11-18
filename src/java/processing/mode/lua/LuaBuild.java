@@ -93,6 +93,7 @@ public final class LuaBuild {
                 LuaProblem.Severity.ERROR));
         }
 
+        FfmpegSetup.ensure(sketch.getFolder(), ".lua", m -> { RunLog.log(m); System.out.println(m); });
         Path tmp = writeTempFile(source);
         RunLog.log("build: wrote " + tmp);
         try {
@@ -167,6 +168,7 @@ public final class LuaBuild {
         // kill -9), the pipe closes and the sketch window closes with it
         // instead of staying behind as an orphan.
         pb.environment().put("LUAMODE_WATCH_STDIN", "1");
+        FfmpegSetup.prepare(pb.environment());
         // the GLFW 3.4 shipped next to the libprocessing runner, if there is one
         File runnerDir = new File(runner).getParentFile();
         if (AppExport.glfwLibs(runnerDir).length > 0) {
