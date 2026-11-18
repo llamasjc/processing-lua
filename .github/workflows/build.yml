@@ -129,7 +129,7 @@ jobs:
       # next to this repo, the same layout as sketchbook/modes/ locally.
       - name: Check out RustMode engine
         shell: bash
-        run: git clone --depth 1 https://github.com/llamasjc/RustMode.git ../RustMode
+        run: git clone --depth 1 https://github.com/llamasjc/processing-rust.git ../RustMode
 
       - name: Install X11 headers (Linux)
         if: runner.os == 'Linux'
@@ -197,7 +197,7 @@ jobs:
 
       - name: Check out RustMode engine
         shell: bash
-        run: git clone --depth 1 https://github.com/llamasjc/RustMode.git ../RustMode
+        run: git clone --depth 1 https://github.com/llamasjc/processing-rust.git ../RustMode
 
       - name: Rust (RustMode's pinned version)
         shell: bash
