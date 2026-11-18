@@ -186,7 +186,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-22.04,   platform: linux-x86_64 }
-          - { os: macos-13,       platform: macos-x86_64 }
+          - { os: macos-15-intel, platform: macos-x86_64 }
           - { os: macos-latest,   platform: macos-aarch64 }
           - { os: windows-latest, platform: windows-x86_64 }
     # GLFW on Windows isn't sorted out yet; the others don't wait on it
