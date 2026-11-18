@@ -120,7 +120,8 @@ public final class LuaBuild {
         File folder = sketch.getFolder();
         File dest = AppExport.write(folder, sketch.getName(), new File(folder, "data"),
             AppExport.variant(LuaMode.detectPlatform()), new File(runner),
-            new String[] { "lib/sketch.lua" }, Renderer.libprocessing() ? "libprocessing" : null);
+            new String[] { "lib/sketch.lua" }, Renderer.libprocessing() ? "libprocessing" : null,
+            AppExport.glfwLibs(new File(runner).getParentFile()));
         Files.writeString(new File(dest, "lib/sketch.lua").toPath(), source, StandardCharsets.UTF_8);
         return dest;
     }
@@ -166,6 +167,14 @@ public final class LuaBuild {
         // kill -9), the pipe closes and the sketch window closes with it
         // instead of staying behind as an orphan.
         pb.environment().put("LUAMODE_WATCH_STDIN", "1");
+        // the GLFW 3.4 shipped next to the libprocessing runner, if there is one
+        File runnerDir = new File(runner).getParentFile();
+        if (AppExport.glfwLibs(runnerDir).length > 0) {
+            String os = System.getProperty("os.name", "").toLowerCase();
+            String var = os.contains("win") ? "PATH" : os.contains("mac") ? "DYLD_LIBRARY_PATH" : "LD_LIBRARY_PATH";
+            String old = pb.environment().get(var);
+            pb.environment().put(var, runnerDir.getAbsolutePath() + (old == null || old.isEmpty() ? "" : File.pathSeparator + old));
+        }
         if (Renderer.libprocessing()) pb.environment().put("PROCESSING_RENDERER", "libprocessing");
         else pb.environment().remove("PROCESSING_RENDERER");
         java.awt.Rectangle disp = display;

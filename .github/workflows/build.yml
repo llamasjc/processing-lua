@@ -266,6 +266,21 @@ jobs:
             runner/target-libprocessing
           key: lp-${{ matrix.platform }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('runner/Cargo.lock') }}-${{ hashFiles('runner/src/**') }}
 
+      # GLFW 3.4 ships next to the runner, so nobody has to install it
+      - name: GLFW next to the runner
+        shell: bash
+        run: |
+          R=runner/target-libprocessing/release
+          case "$RUNNER_OS" in
+            Linux)   cp -L /usr/local/lib/libglfw.so.3 $R/ ;;
+            macOS)   f=$(ls $R/build/glfw-sys-*/out/*/lib-*/libglfw.3.dylib 2>/dev/null | head -1)
+                     [ -z "$f" ] && f="$(brew --prefix glfw)/lib/libglfw.3.dylib"
+                     cp -L "$f" $R/libglfw.3.dylib ;;
+            Windows) f=$(ls $R/build/glfw-sys-*/out/*/lib-vc*/glfw3.dll 2>/dev/null | head -1)
+                     [ -n "$f" ] && cp "$f" $R/ || true ;;
+          esac
+          ls $R | grep -i glfw || true
+
       - name: Upload binary
         uses: actions/upload-artifact@v6
         with:
@@ -273,6 +288,9 @@ jobs:
           path: |
             runner/target-libprocessing/release/luamode-runner
             runner/target-libprocessing/release/luamode-runner.exe
+            runner/target-libprocessing/release/libglfw.so.3
+            runner/target-libprocessing/release/libglfw.3.dylib
+            runner/target-libprocessing/release/glfw3.dll
 
   # ── Distribution ZIP ─────────────────────────────────────────────────────
   dist:

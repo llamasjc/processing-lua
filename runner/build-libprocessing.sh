@@ -42,6 +42,21 @@ if [ "$UPSTREAM" = 1 ]; then
   DEST="$HERE/../mode/runner/$OS-$ARCH-libprocessing"
   mkdir -p "$DEST"
   cp "target-libprocessing-upstream/release/$EXE" "$DEST/$EXE"
+  # GLFW 3.4 goes along, so the runner works where it isn't installed
+  case "$OS" in
+    linux)
+      L=$(pkg-config --variable=libdir glfw3 2>/dev/null)
+      for d in "$L" /usr/local/lib /usr/lib /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu; do
+        if [ -n "$d" ] && [ -e "$d/libglfw.so.3" ]; then cp -L "$d/libglfw.so.3" "$DEST/"; echo "GLFW: $d/libglfw.so.3"; break; fi
+      done;;
+    macos)
+      f=$(ls target-libprocessing-upstream/release/build/glfw-sys-*/out/*/lib-*/libglfw.3.dylib 2>/dev/null | head -1)
+      [ -z "$f" ] && f="$(brew --prefix glfw 2>/dev/null)/lib/libglfw.3.dylib"
+      [ -e "$f" ] && cp -L "$f" "$DEST/libglfw.3.dylib";;
+    windows)
+      f=$(ls target-libprocessing-upstream/release/build/glfw-sys-*/out/*/lib-vc*/glfw3.dll 2>/dev/null | head -1)
+      [ -e "$f" ] && cp "$f" "$DEST/";;
+  esac
   echo "built: $DEST/$EXE (pinned libprocessing, goes in releases)"
 else
   cargo build --release --features libprocessing --target-dir target-libprocessing ${ARGS[@]+"${ARGS[@]}"} "$@"
