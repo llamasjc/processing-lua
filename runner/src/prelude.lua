@@ -598,6 +598,15 @@ function createOutput(path)
   return f
 end
 
+-- ── PFont.list() ──────────────────────────────────────────────────────────
+-- printArray(PFont.list()): the installed fonts; any name works with createFont
+PFont = PFont or {}
+do
+  local list = __fontList
+  __fontList = nil
+  function PFont.list() return list() end
+end
+
 -- ── PVector ───────────────────────────────────────────────────────────────
 -- v = createVector(3, 4)   v:add(w)   v:mag()   local sum = a + b
 -- Methods change the vector and return it, so they chain. The operators
@@ -1058,6 +1067,22 @@ do
   Shape.__index = Shape
   function Shape:disableStyle() style(self.id, false) return self end
   function Shape:enableStyle() style(self.id, true) return self end
+  -- parts of the drawing: by the id an element has in the SVG, or by number
+  -- (counted from 0, as in Processing)
+  local child, childCount, points = __shapeChild, __shapeChildCount, __shapePoints
+  __shapeChild, __shapeChildCount, __shapePoints = nil, nil, nil
+  function Shape:getChild(key)
+    local id, w, h = child(self.id, key)
+    if id == 0 then return nil end
+    return setmetatable({ id = id, width = w, height = h }, Shape)
+  end
+  function Shape:getChildCount() return childCount(self.id) end
+  -- the outline points, counted from 0: v.x, v.y
+  function Shape:getVertexCount() return #points(self.id) end
+  function Shape:getVertex(i)
+    local p = points(self.id)[i + 1]
+    return p and createVector(p.x, p.y) or createVector(0, 0)
+  end
   Shape.__tostring = function(s) return "shape " .. s.width .. "x" .. s.height end
   function loadShape(path)
     local id, w, h = load(path)

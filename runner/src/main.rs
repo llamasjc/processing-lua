@@ -1162,6 +1162,41 @@ fn register_globals(lua: &Lua) -> LuaResult<()> {
     g.set("__shapeStyle", lua.create_function(|_, (id, on): (i64, bool)| {
         processing::shape_own_style(id as u64, on); Ok(())
     })?)?;
+    // getChild(name or index), getChildCount(), getVertex(i): parts of a loaded SVG
+    g.set("__shapeChild", lua.create_function(|_, (id, key): (i64, LuaValue)| {
+        use engine::LoadedShapeExt;
+        let id = id as u64;
+        let child = match key {
+            LuaValue::String(s) => { let k = s.to_string_lossy().to_string(); id.get_child(k.as_str()) }
+            LuaValue::Integer(i) => id.get_child(i.max(0) as usize),
+            LuaValue::Number(n) => id.get_child(n.max(0.0) as usize),
+            _ => 0,
+        };
+        let (w, h) = processing::shape_size(child);
+        Ok((child as i64, w as f64, h as f64))
+    })?)?;
+    g.set("__shapeChildCount", lua.create_function(|_, id: i64| {
+        use engine::LoadedShapeExt;
+        Ok((id as u64).get_child_count() as i64)
+    })?)?;
+    g.set("__shapePoints", lua.create_function(|lua, id: i64| {
+        let t = lua.create_table()?;
+        use engine::LoadedShapeExt;
+        let id = id as u64;
+        for i in 0..id.get_vertex_count() {
+            let v = id.get_vertex(i);
+            let p = lua.create_table()?;
+            p.set("x", v.x)?; p.set("y", v.y)?;
+            t.set(i + 1, p)?;
+        }
+        Ok(t)
+    })?)?;
+    // PFont.list(): installed fonts by name
+    g.set("__fontList", lua.create_function(|lua, ()| {
+        let t = lua.create_table()?;
+        for (i, n) in engine::PFont::list().into_iter().enumerate() { t.set(i + 1, n)?; }
+        Ok(t)
+    })?)?;
 
     // createGraphics: the Lua side (prelude.lua) wraps these into an object
     // with beginDraw / endDraw and hands image() the right one.
