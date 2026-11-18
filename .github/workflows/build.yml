@@ -428,11 +428,27 @@ jobs:
           PROCESSING_DIR: ${{ github.workspace }}/processing
         run: gradle dist --no-daemon
 
+      # LuaMode-lite.zip: the same without the libprocessing runners (CPU only)
+      - name: Build lite ZIP
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          src = "build/distributions/LuaMode.zip"
+          with zipfile.ZipFile(src) as a, zipfile.ZipFile("build/distributions/LuaMode-lite.zip", "w", zipfile.ZIP_DEFLATED) as b:
+              for i in a.infolist():
+                  if "/runner/" in i.filename and "-libprocessing/" in i.filename:
+                      continue
+                  b.writestr(i, a.read(i))
+          PY
+          ls -lh build/distributions/
+
       - name: Upload ZIP
         uses: actions/upload-artifact@v6
         with:
           name: LuaMode-dist
-          path: build/distributions/LuaMode.zip
+          path: |
+            build/distributions/LuaMode.zip
+            build/distributions/LuaMode-lite.zip
 
   # ── GitHub Release (on v* tags) ──────────────────────────────────────────
   # The ZIP has the mode jar, all four native libs and all four runners, so
@@ -446,15 +462,26 @@ jobs:
       contents: write
 
     steps:
+      - uses: actions/checkout@v5
+
       - name: Download ZIP
         uses: actions/download-artifact@v6
         with:
           name: LuaMode-dist
           path: dist/
 
+      # notes from release-notes/<tag>.md when there is one; a re-pushed tag
+      # replaces the zips on the release that's already there
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.zip \
-            --repo "$GITHUB_REPOSITORY" --title "LuaMode $GITHUB_REF_NAME" --generate-notes
+          notes="release-notes/$GITHUB_REF_NAME.md"
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/*.zip --repo "$GITHUB_REPOSITORY" --clobber
+            [ -f "$notes" ] && gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file "$notes"
+          elif [ -f "$notes" ]; then
+            gh release create "$GITHUB_REF_NAME" dist/*.zip --repo "$GITHUB_REPOSITORY" --title "Lua Mode ${GITHUB_REF_NAME#v}" --notes-file "$notes"
+          else
+            gh release create "$GITHUB_REF_NAME" dist/*.zip --repo "$GITHUB_REPOSITORY" --title "Lua Mode ${GITHUB_REF_NAME#v}" --generate-notes
+          fi
