@@ -463,10 +463,19 @@ jobs:
           cp LuaMode.txt dist/LuaMode.txt
           notes="release-notes/$GITHUB_REF_NAME.md"
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/*.zip --repo "$GITHUB_REPOSITORY" --clobber
+            for f in dist/*.zip dist/LuaMode.txt; do
+              # up under a temporary name first; the old file goes only once the new one is there
+              n=$(basename "$f"); tmp="new-$n"; cp "$f" "$RUNNER_TEMP/$tmp"
+              gh release delete-asset "$GITHUB_REF_NAME" "$tmp" -y --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+              gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/$tmp" --repo "$GITHUB_REPOSITORY"
+              old=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" -q ".assets[] | select(.name==\"$n\") | .id")
+              [ -n "$old" ] && gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$old"
+              new=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" -q ".assets[] | select(.name==\"$tmp\") | .id")
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/assets/$new" -f name="$n" >/dev/null
+            done
             [ -f "$notes" ] && gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file "$notes"
           elif [ -f "$notes" ]; then
-            gh release create "$GITHUB_REF_NAME" dist/*.zip --repo "$GITHUB_REPOSITORY" --title "Lua Mode ${GITHUB_REF_NAME#v}" --notes-file "$notes"
+            gh release create "$GITHUB_REF_NAME" dist/*.zip dist/LuaMode.txt --repo "$GITHUB_REPOSITORY" --title "Lua Mode ${GITHUB_REF_NAME#v}" --notes-file "$notes"
           else
-            gh release create "$GITHUB_REF_NAME" dist/*.zip --repo "$GITHUB_REPOSITORY" --title "Lua Mode ${GITHUB_REF_NAME#v}" --generate-notes
+            gh release create "$GITHUB_REF_NAME" dist/*.zip dist/LuaMode.txt --repo "$GITHUB_REPOSITORY" --title "Lua Mode ${GITHUB_REF_NAME#v}" --generate-notes
           fi
