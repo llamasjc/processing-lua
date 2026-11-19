@@ -93,13 +93,20 @@ fn main() {
         }
     }
 
+    // Windows exports start the runner itself (named after the sketch, with
+    // its icon), with sketch.lua next to it instead of on the command line
+    let next_to_exe = env::current_exe().ok()
+        .and_then(|e| e.parent().map(|d| d.join("sketch.lua")))
+        .filter(|p| p.is_file());
     let sketch_path: PathBuf = env::args()
         .nth(1)
         .map(PathBuf::from)
+        .or(next_to_exe)
         .unwrap_or_else(|| {
             eprintln!("usage: luamode-runner <sketch.lua>");
             processing::exit_with(2);
         });
+    engine::apply_launch_file();
 
     // Not read_to_string: one stray byte (a Latin-1 comment, say) shouldn't
     // stop the sketch from running. Lua strings are bytes anyway.

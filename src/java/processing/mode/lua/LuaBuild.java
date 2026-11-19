@@ -142,7 +142,8 @@ public final class LuaBuild {
         File dest = AppExport.write(outDir, sketch.getName(), new File(folder, "data"), t, runner,
             new String[] { "lib/sketch.lua" }, libprocessing ? "libprocessing" : null,
             AppExport.glfwLibs(runner.getParentFile()));
-        Files.writeString(new File(dest, "lib/sketch.lua").toPath(), source, StandardCharsets.UTF_8);
+        // Windows: the runner is the .exe at the top and finds sketch.lua next to it
+        Files.writeString(new File(dest, t.windows() ? "sketch.lua" : "lib/sketch.lua").toPath(), source, StandardCharsets.UTF_8);
         return dest;
     }
 
