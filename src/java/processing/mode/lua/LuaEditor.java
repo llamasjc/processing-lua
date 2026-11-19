@@ -16,6 +16,7 @@ import java.awt.event.KeyEvent;
 import java.io.File;
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -347,15 +348,42 @@ public class LuaEditor extends Editor {
         if (sketch.isModified()) {
             try { sketch.save(); } catch (Exception ex) { statusError("Couldn't save: " + ex.getMessage()); return; }
         }
+        LuaBuild build = new LuaBuild(sketch, luaMode.getFolder());
+        ExportDialog.Choice choice = ExportDialog.show(this, sketch.getFolder(),
+            new String[] { Renderer.SOFTWARE, Renderer.LIBPROCESSING },
+            Renderer.libprocessing() ? Renderer.LIBPROCESSING : Renderer.SOFTWARE,
+            (t, r) -> build.runnerFor(t, Renderer.LIBPROCESSING.equals(r)) == null ? "not in this copy of Lua Mode" : null);
+        if (choice == null) return;
+        boolean lp = Renderer.LIBPROCESSING.equals(choice.renderer);
         statusNotice("Exporting...");
-        try {
-            File dest = new LuaBuild(sketch, luaMode.getFolder()).exportApplication();
-            statusNotice("Exported to " + sketch.getName() + "/" + dest.getName() + "/");
-            AppExport.show(dest);
-        } catch (Exception ex) {
-            statusError("Export failed: " + ex.getMessage());
-            ex.printStackTrace();
-        }
+        Thread worker = new Thread(() -> {
+            List<String> made = new ArrayList<>();
+            String safe = sketch.getName().replaceAll("[^A-Za-z0-9_.-]", "_");
+            AppExport.icon = choice.icon;
+            try {
+                for (ExportDialog.Target t : choice.targets) {
+                    File dest = build.exportApplication(t, lp);
+                    made.add(dest.getName());
+                    if (choice.appImage && (t == ExportDialog.Target.LINUX_X64 || t == ExportDialog.Target.LINUX_ARM64)) {
+                        File img = AppImage.make(luaMode.getFolder(), dest, sketch.getName(), safe,
+                            t == ExportDialog.Target.LINUX_X64 ? "x86_64" : "aarch64", choice.icon,
+                            m -> java.awt.EventQueue.invokeLater(() -> statusNotice(m)));
+                        made.add(img.getName());
+                    }
+                }
+                String msg = "Exported to " + sketch.getName() + "/: " + String.join(", ", made);
+                java.awt.EventQueue.invokeLater(() -> statusNotice(msg));
+                AppExport.show(sketch.getFolder());
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                String msg = "Export failed: " + ex.getMessage();
+                java.awt.EventQueue.invokeLater(() -> statusError(msg));
+            } finally {
+                AppExport.icon = null;
+            }
+        }, "luamode-export");
+        worker.setDaemon(true);
+        worker.start();
     }
 
     private void handleExportPdez(ActionEvent e) {

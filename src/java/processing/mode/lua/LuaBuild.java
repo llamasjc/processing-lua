@@ -110,6 +110,41 @@ public final class LuaBuild {
      *
      * @return the export folder
      */
+    /**
+     * The runner an export for {@code t} ships, or null when this copy of Lua
+     * Mode doesn't have it. Every platform's runners come in the release zip
+     * (mode/runner/&lt;platform&gt;[-libprocessing]/), so an export can be
+     * made for any of them from any computer.
+     */
+    File runnerFor(ExportDialog.Target t, boolean libprocessing) {
+        String exe = t.windows() ? "luamode-runner.exe" : "luamode-runner";
+        if (t == ExportDialog.Target.here()) {
+            // your own builds first, as when running
+            File dev = new File(modeFolder, libprocessing ? "runner/target-libprocessing/release/" + exe
+                                                          : "runner/target/release/" + exe);
+            if (dev.isFile()) return dev;
+            if (!libprocessing) {
+                File extracted = LuaMode.getRunnerExecutable();
+                if (extracted != null && extracted.isFile()) return extracted;
+            }
+        }
+        File f = new File(modeFolder, "mode/runner/" + t.lua + (libprocessing ? "-libprocessing/" : "/") + exe);
+        return f.isFile() ? f : null;
+    }
+
+    /** Export Application for one platform; returns the export folder. */
+    public File exportApplication(ExportDialog.Target t, boolean libprocessing) throws IOException {
+        File runner = runnerFor(t, libprocessing);
+        if (runner == null) throw new IOException("no " + (libprocessing ? "libprocessing " : "") + "runner for " + t.label);
+        String source = buildSource();
+        File folder = sketch.getFolder();
+        File dest = AppExport.write(folder, sketch.getName(), new File(folder, "data"), t, runner,
+            new String[] { "lib/sketch.lua" }, libprocessing ? "libprocessing" : null,
+            AppExport.glfwLibs(runner.getParentFile()));
+        Files.writeString(new File(dest, "lib/sketch.lua").toPath(), source, StandardCharsets.UTF_8);
+        return dest;
+    }
+
     public File exportApplication() throws IOException {
         String source = buildSource();
         String runner = resolveRunner();
