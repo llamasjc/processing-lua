@@ -133,12 +133,13 @@ public final class LuaBuild {
     }
 
     /** Export Application for one platform; returns the export folder. */
-    public File exportApplication(ExportDialog.Target t, boolean libprocessing) throws IOException {
+    public File exportApplication(ExportDialog.Target t, boolean libprocessing, File outDir) throws IOException {
         File runner = runnerFor(t, libprocessing);
         if (runner == null) throw new IOException("no " + (libprocessing ? "libprocessing " : "") + "runner for " + t.label);
         String source = buildSource();
         File folder = sketch.getFolder();
-        File dest = AppExport.write(folder, sketch.getName(), new File(folder, "data"), t, runner,
+        outDir.mkdirs();
+        File dest = AppExport.write(outDir, sketch.getName(), new File(folder, "data"), t, runner,
             new String[] { "lib/sketch.lua" }, libprocessing ? "libprocessing" : null,
             AppExport.glfwLibs(runner.getParentFile()));
         Files.writeString(new File(dest, "lib/sketch.lua").toPath(), source, StandardCharsets.UTF_8);
