@@ -477,6 +477,11 @@ jobs:
 
       # notes from release-notes/<tag>.md when there is one; a re-pushed tag
       # replaces the zips on the release that's already there
+      # sketches without the IDE: every runner, the examples and run scripts
+      # (like C++ Mode's plug-and-play package); published with the dist zips
+      - name: Standalone package
+        run: python3 scripts/generate_standalone.py dist/LuaMode.zip --out dist
+
       # the version: prettyVersion from the tag (v1.2.3 -> 1.2.3), and version
       # one more than the latest published release's (the number the
       # Contribution Manager compares). The same tag built again keeps its number.
