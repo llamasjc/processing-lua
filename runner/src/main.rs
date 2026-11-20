@@ -19,6 +19,7 @@
 /// numbers back to the correct sketch tab.
 
 use mlua::prelude::*;
+mod payload;
 mod processing;
 mod parity;
 use processing::App;
@@ -93,6 +94,11 @@ fn main() {
         }
     }
 
+    // A one-file export: the sketch and its data are inside this program
+    let embedded = if env::args().nth(1).is_none() { payload::read() } else { None };
+    if let Some(p) = &embedded { payload::apply(p); }
+    let embedded_src = embedded.as_ref().and_then(|p| p.get("sketch.lua").map(|s| s.to_vec()));
+
     // Windows exports start the runner itself (named after the sketch, with
     // its icon), with sketch.lua next to it instead of on the command line
     let next_to_exe = env::current_exe().ok()
@@ -102,6 +108,7 @@ fn main() {
         .nth(1)
         .map(PathBuf::from)
         .or(next_to_exe)
+        .or_else(|| embedded_src.as_ref().map(|_| PathBuf::from("sketch.lua")))
         .unwrap_or_else(|| {
             eprintln!("usage: luamode-runner <sketch.lua>");
             processing::exit_with(2);
@@ -110,7 +117,7 @@ fn main() {
 
     // Not read_to_string: one stray byte (a Latin-1 comment, say) shouldn't
     // stop the sketch from running. Lua strings are bytes anyway.
-    let sketch_src = fs::read(&sketch_path).unwrap_or_else(|e| {
+    let sketch_src = embedded_src.map(Ok).unwrap_or_else(|| fs::read(&sketch_path)).unwrap_or_else(|e| {
         eprintln!("{}: {}", sketch_path.display(), e);
         processing::exit_with(2);
     });

@@ -362,14 +362,10 @@ public class LuaEditor extends Editor {
             AppExport.icon = choice.icon;
             try {
                 for (ExportDialog.Target t : choice.targets) {
-                    File dest = build.exportApplication(t, lp, choice.outDir);
+                    File dest = build.exportApplication(t, lp, choice.outDir, choice.icon,
+                        choice.appImage && (t == ExportDialog.Target.LINUX_X64 || t == ExportDialog.Target.LINUX_ARM64),
+                        m -> java.awt.EventQueue.invokeLater(() -> statusNotice(m)));
                     made.add(dest.getName());
-                    if (choice.appImage && (t == ExportDialog.Target.LINUX_X64 || t == ExportDialog.Target.LINUX_ARM64)) {
-                        File img = AppImage.make(luaMode.getFolder(), dest, sketch.getName(), safe,
-                            t == ExportDialog.Target.LINUX_X64 ? "x86_64" : "aarch64", choice.icon,
-                            m -> java.awt.EventQueue.invokeLater(() -> statusNotice(m)));
-                        made.add(img.getName());
-                    }
                 }
                 String msg = "Exported to " + choice.outDir.getName() + "/: " + String.join(", ", made);
                 java.awt.EventQueue.invokeLater(() -> statusNotice(msg));

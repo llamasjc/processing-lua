@@ -256,7 +256,7 @@ final class AppExport {
       + "Or in Terminal:  xattr -dr com.apple.quarantine " + safe + ".app\n", StandardCharsets.UTF_8);
   }
 
-  private static void sign(File f) {
+  static void sign(File f) {
     try {
       Process p = new ProcessBuilder("codesign", "--force", "--sign", "-", f.getAbsolutePath())
         .redirectErrorStream(true).start();

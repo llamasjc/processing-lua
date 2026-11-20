@@ -133,18 +133,16 @@ public final class LuaBuild {
     }
 
     /** Export Application for one platform; returns the export folder. */
-    public File exportApplication(ExportDialog.Target t, boolean libprocessing, File outDir) throws IOException {
+    public File exportApplication(ExportDialog.Target t, boolean libprocessing, File outDir, File icon,
+                                  boolean appImage, java.util.function.Consumer<String> status)
+            throws IOException, InterruptedException {
         File runner = runnerFor(t, libprocessing);
         if (runner == null) throw new IOException("no " + (libprocessing ? "libprocessing " : "") + "runner for " + t.label);
         String source = buildSource();
-        File folder = sketch.getFolder();
         outDir.mkdirs();
-        File dest = AppExport.write(outDir, sketch.getName(), new File(folder, "data"), t, runner,
-            new String[] { "lib/sketch.lua" }, libprocessing ? "libprocessing" : null,
-            AppExport.glfwLibs(runner.getParentFile()));
-        // Windows: the runner is the .exe at the top and finds sketch.lua next to it
-        Files.writeString(new File(dest, t.windows() ? "sketch.lua" : "lib/sketch.lua").toPath(), source, StandardCharsets.UTF_8);
-        return dest;
+        return OneFileExport.write(outDir, sketch.getName(), new File(sketch.getFolder(), "data"), t, runner,
+            source, libprocessing ? "libprocessing" : null, AppExport.glfwLibs(runner.getParentFile()),
+            icon, appImage, modeFolder, status);
     }
 
     public File exportApplication() throws IOException {
