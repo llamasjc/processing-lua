@@ -32,6 +32,11 @@ engine = { package = "processing", path = "../../RustMode" }
 # LuaMode uses it when the toolbar's renderer menu says libprocessing.
 libprocessing = ["engine/libprocessing"]
 
+# The web editor (wlua): the engine's browser build, where the page drives the
+# frames. Built for wasm32-unknown-emscripten (Lua needs setjmp/longjmp):
+#   cargo build --release --target wasm32-unknown-emscripten --features wasm
+wasm = ["engine/wasm"]
+
 # libprocessing's Bevy fork stands in for upstream Bevy (as in libprocessing itself)
 [patch."https://github.com/bevyengine/bevy"]
 bevy = { git = "https://github.com/processing/bevy", branch = "main" }
